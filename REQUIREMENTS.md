@@ -10,9 +10,8 @@ per-role in-app documentation page.
 
 Two companion documents:
 
-- `WORKBENCH.md` at `www/secretary/workbench/` in `apache/whimsy` describes the
-  current tool in detail, and is the baseline for every "preserve" requirement
-  below.
+- `WORKBENCH.md` in this repository describes the current tool in detail, and
+  is the baseline for every "preserve" requirement below.
 - `CONTRIBUTING.md`, `AGENTS.md` and `docs/` in `apache/tooling-agenda`
   describe the conventions the replacement inherits.
 
