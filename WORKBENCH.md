@@ -782,7 +782,9 @@ classification, OCR) exists because this submission path is free-form email.
 ### 14.2 The invitation demo at `www/project/icla/`
 
 Whimsy contains a Sinatra/Vue application titled "ASF ICLA demo" that
-models the committer invitation process end to end. It is wired up in the
+models the committer invitation process end to end. It was started in
+October 2017 by Craig L Russell, and its feature work ended in July 2018;
+everything since is Ruby and gem upkeep. It is wired up in the
 Docker development configuration (`/project/icla`) but every page says it is
 a demo: state is written to `/srv/icla/<token>.json`, nothing is committed
 to SVN, and the final page lists what a real application would have done.
