@@ -209,10 +209,10 @@ record.
 |---|---|---|---|---|
 | ICLA | `documents/iclas/<stem>.<ext>`, or `<stem>/icla.<ext>` + `icla.<ext>.asc` when signed; email properties set | `officers/iclas.txt` line `notinavail:<legal>:<public>:<email>:Signed CLA;<file>`, sorted | none | confirmation to submitter; template depends on whether a project was named and an account requested; (P)PMC private list copied and set as Reply-To |
 | ICLA with account request | as above | as above plus `infra/acreq/new-account-reqs.txt` line | none | as above plus account request to `root@` copying submitter and project |
-| Additional ICLA | move existing file into `<stem>/`, add `<stem>/iclaN.<ext>` | replace the person's `iclas.txt` line | update `cn` and `mail` in LDAP | confirmation to all of the person's addresses |
+| Additional ICLA | move existing file into `<stem>/`, add `<stem>/iclaN.<ext>` | replace the person's `iclas.txt` line | today: update `cn` and `mail` in LDAP; replacement: emit a person-changed event (F-64) | confirmation to all of the person's addresses |
 | CCLA | `documents/cclas/...` | append to `officers/cclas.txt` | none | confirmation to contact, project copied |
 | Software grant | `documents/grants/...` | insert block in `officers/grants.txt` after the registering marker | none | confirmation to signer, project copied |
-| Membership application | `documents/member_apps/...` | new entry in `foundation/members.txt`, count and sort updated; flags in `Meetings/<date>/memapp-received.txt` set to yes | add to `cn=member` group | welcome letter; subscription requests for `members@` and `members-notify@` dropped in `subreq` |
+| Membership application | `documents/member_apps/...` | new entry in `foundation/members.txt`, count and sort updated; flags in `Meetings/<date>/memapp-received.txt` set to yes | today: add to `cn=member` group; replacement: emit a membership-granted event (F-64) | welcome letter; subscription requests for `members@` and `members-notify@` dropped in `subreq` |
 | Emeritus request | `documents/emeritus-requests-received/<availid>.<ext>` | none (processed later from the roster tool) | none | acknowledgement |
 | Withdrawal request | `documents/withdrawn/pending/<availid>.<ext>` | none | none | acknowledgement |
 
@@ -228,11 +228,25 @@ record.
 - **F-63 (change)** Commits are made through the tool's SVN role account with
   `asf:uid` set to the operator, as BAT does, rather than with the operator's
   own password.
-- **F-64 (change)** LDAP writes are made through the tool's bind account with
-  the operator recorded in the audit log, rather than with the operator's
-  password.
+- **F-64 (change)** The tool does not write to LDAP. Where the workbench
+  today updates a person's `cn` and `mail` or adds them to the `member`
+  group, the replacement records the change in SVN (the source of record)
+  and emits a record-change event for the roster and directory service to
+  apply, in the same way the Board Agenda Tool is being split from direct
+  LDAP writes. LDAP is read-only for this tool. The event carries the
+  acting operator, the SVN revision and the document that justifies the
+  change, so the receiving service can audit it.
 - **F-65 (preserve)** Confirmation mail is never redirected to an
   `@apache.org` address.
+- **F-66 (change)** A membership application is only filed for a person on
+  the elected list for the current meeting
+  (`Meetings/<date>/memapp-received.txt`, built from `nominated-members.txt`
+  and the vote). Today the form's drop-down enforces this; the replacement
+  additionally matches the extracted name and email of the application to
+  the nominee and flags a mismatch, offers the nominee's invitation record
+  for comparison, and refuses to file an application for someone whose
+  `invite` flag is not set. An application from someone not elected gets a
+  reply explaining that, instead of being filed.
 
 ### 3.8 Replies and rejections
 
@@ -277,7 +291,7 @@ record.
 ### 3.10 Records and audit
 
 - **F-90 (new)** Every action is recorded with operator, time, inputs, SVN
-  revisions produced, LDAP changes and emails sent, and is viewable per item
+  revisions produced, events emitted and emails sent, and is viewable per item
   and per month, like BAT's revision logs.
 - **F-91 (preserve)** Response-time reporting (today `response-time.cgi`):
   time from receipt to filing, per month.
@@ -294,14 +308,66 @@ absorbed, since they share its data and audience: `icla-lint`,
 
 ### 3.12 Submitter side
 
+There is no online submission form today: `apache.org` publishes fillable
+PDFs and asks for them by email (WORKBENCH.md section 14.1). Whimsy holds an
+unfinished demo of a submitter-facing form at `www/project/icla/`
+(section 14.2), which is the only existing design for one.
+
 - **F-100 (new)** The ICLA PDF form published on `apache.org` gains built-in
   validation: apache id lowercase, letters and digits only, minimum length;
   required fields present; email well-formed. This is a change to the form,
   not to the tool, and server-side validation in section 3.3 stays necessary
   because not every PDF viewer runs form scripts.
-- **F-101 (new)** The online submission form becomes the recommended route,
-  and documents submitted through it carry their origin and extracted
-  fields so they skip OCR.
+- **F-101 (new)** The tool offers an online submission form, reached from
+  the invitation link in section 3.13 or from the public page. It collects
+  the ICLA fields with validation, produces the agreement for the submitter
+  to sign (electronically or by PGP), and delivers the result into the
+  same queue as email, with origin and fields already known so the
+  normalisation and OCR steps are skipped. Email submission stays supported
+  for people who cannot or will not use the form.
+
+### 3.13 Invitation and account request (new)
+
+Today a project votes on a new committer on its private list, a member
+sends an invitation by hand asking for an ICLA, and the Secretary files the
+ICLA when it arrives. Nothing ties the three together, and the project
+learns the ICLA is on file only if the submitter named the project on the
+form, which makes the Secretary copy the project's private list. The
+account itself is requested either by the Secretary at filing time, when
+the form carries an id, a project and a vote link, or later by the project
+through the `acreq` helper, which lists everyone with an ICLA and no id
+(WORKBENCH.md section 14.3).
+
+- **F-110** A PMC or PPMC member can register an invitation: project, the
+  person's name and email, the vote result link, and for podlings the
+  NOTICE link, as the Whimsy demo collects them. The tool records it as an
+  expected ICLA and sends the invitation email with a personal link to the
+  submission form (F-101).
+- **F-111** An incoming ICLA, whether through the form or by email, is
+  matched to open invitations by email address and name, and the match is
+  shown on the work item. The ICLA filing form is then prefilled with the
+  project and vote link, so the operator does not retype them.
+- **F-112** When an ICLA matched to an invitation is filed, the project is
+  told, by email to its private list and by the invitation's status in the
+  tool, that the agreement is on file. The notification is sent regardless
+  of what the submitter wrote in the "notify project" field.
+- **F-113** The invitation carries the preferred Apache id, chosen by the
+  invitee on the form and validated for availability against `iclas.txt`,
+  the mail aliases and pending requests, so that the account request can
+  be prepared without a second round trip.
+- **F-114** An ICLA filing does not itself request an account. The account
+  request is a separate step the project triggers from the invitation
+  record once the ICLA is on file, unless the project opted at invitation
+  time to have it raised automatically. Either way the request is emitted
+  as a record-change event (F-64) rather than written directly, with the
+  `new-account-reqs.txt` line and `root@` mail kept only as long as the
+  account service needs them.
+- **F-115** Invitations that have not produced an ICLA after a configurable
+  period are listed to the project with the option to remind or withdraw,
+  replacing the project's current habit of polling the `acreq` list.
+- **F-116** The `acreq` helper's function, requesting an account for an
+  existing ICLA without an invitation, remains available for the cases an
+  invitation did not precede, with the same validation.
 
 ---
 
@@ -351,7 +417,7 @@ Mirrors the Board Agenda Tool so that the Tooling team can maintain both.
 | State | SQLite with SQLModel/SQLAlchemy and sequential Alembic migrations that auto-apply at startup; new tables registered in the admin data browser. The database is workflow state and cache; SVN files stay the source of record and the database must be rebuildable from raw mail plus SVN. |
 | Files | Raw mail and derived PDFs under a configured `data_dir`/`state_dir`, never in the repository. |
 | SVN | Commits through the tool's role account with `asf:tool` and `asf:uid` revision properties and "committed on behalf of" in the message; `svnmucc` for multi-path commits, as `app/svn.py` does. Working copies of `officers/`, `foundation/`, `documents/` and `Meetings/` refreshed by pubsub. |
-| LDAP | `asfpy` async LDAP with a configured bind account; person and group writes limited to the operations in section 3.7. |
+| LDAP | `asfpy` async LDAP, read-only, for roles and lookups. Person and group changes are emitted as record-change events (F-64) for the roster and directory service; the event transport is to be shared with the Board Agenda Tool's split. |
 | Mail out | `aiosmtplib` to the Foundation relay; no SMTP block in config means no mail is sent. |
 | Mail in | A delivery path that does not require the web process to run on the mail host: pipe from the relay into an intake endpoint, LMTP, or IMAP polling of the `officers-secretary` archive (open question 4). |
 | Pubsub | `asfpy.pubsub` listener for changes to the SVN paths above, with the reconnect and catch-up behaviour BAT has. |
@@ -384,7 +450,10 @@ Workflow state the database holds; everything filed stays in SVN.
   DocuSign), key id, result, output, key archived revision, checked at.
 - **Action**: submission, kind (file ICLA, reject, forward, …), operator,
   started and finished at, steps with status and transcript, SVN revisions,
-  LDAP changes, emails sent.
+  events emitted, emails sent.
+- **Invitation**: project, invitee name and email, inviting member, vote
+  and NOTICE links, preferred Apache id, status (sent, ICLA received, ICLA
+  filed, account requested, withdrawn), linked submission, reminders sent.
 - **RejectionReason**: key, label, explanation, kind (reason or also-fix),
   active flag, order.
 - **AutomaticReply**: submission, kind, sent at, suppressed by.
@@ -418,5 +487,10 @@ Workflow state the database holds; everything filed stays in SVN.
 5. OCR engine: Tesseract with CJK packs, or a hosted service; the choice
    affects where document contents travel.
 6. DocuSign: certificate validation only, or an account and API integration?
-7. Does the online submission form move into this tool so that origin and
-   fields are captured at submission time?
+7. The submission form (F-101) and invitation flow (section 3.13) are new
+   user-facing surfaces for projects and invitees, outside the secretarial
+   roles. Do they live in this tool, or in the roster tool, with this tool
+   consuming the invitation record?
+8. Record-change events (F-64, F-114): transport, schema and the consumer
+   on the roster and directory side are to be defined together with the
+   Board Agenda Tool's split, so the two tools emit the same kind of event.

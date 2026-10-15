@@ -749,3 +749,128 @@ Common thread: items 1 to 4 and 7 all benefit from a processing step at
 delivery time whose results are stored in the message's YAML entry. The
 existing UI would then preselect the doctype, prefill the form, show the
 signature result, and only ask the operator to confirm.
+
+## 14. Around the workbench: submission, invitation, accounts, membership
+
+The workbench is the middle of a longer chain. This section describes the
+pieces on either side of it as they exist today, because the replacement
+has to fit, or change, that chain.
+
+### 14.1 How documents are submitted today
+
+There is no online submission form. The public page
+https://www.apache.org/licenses/contributor-agreements.html#submitting tells
+the submitter to:
+
+- fill in the PDF (`icla.pdf`, `cla-corporate.pdf`,
+  `software-grant-template.pdf`) with a PDF form filler;
+- sign electronically, by attaching a graphic signature, or with a detached
+  PGP signature (`gpg --armor --detach-sign`, public key uploaded to
+  `keyserver.ubuntu.com`, never sent to the ASF);
+- email one document per message, as an attachment named `icla.pdf`,
+  `ccla.pdf` or `software-grant.pdf` (plus `.asc`), from the address written
+  in the document, to `secretary@apache.org` with nobody copied.
+
+Postal mail, fax, print-and-scan, zip files and links are refused. The only
+validation rule stated is for the preferred Apache id (a letter followed by
+at least two alphanumerics, nothing else). The PDF itself does not enforce
+it; the workbench rejects invalid ids at filing time (section 6).
+
+Everything else the Secretary asked for in section 13 (normalisation,
+classification, OCR) exists because this submission path is free-form email.
+
+### 14.2 The invitation demo at `www/project/icla/`
+
+Whimsy contains a Sinatra/Vue application titled "ASF ICLA demo" that
+models the committer invitation process end to end. It is wired up in the
+Docker development configuration (`/project/icla`) but every page says it is
+a demo: state is written to `/srv/icla/<token>.json`, nothing is committed
+to SVN, and the final page lists what a real application would have done.
+
+The flow it demonstrates:
+
+1. **Invite** (`pages/invite.js.rb`). A PMC or PPMC member picks one of
+   their projects, enters the contributor's name and email, and walks
+   through three phases, `[DISCUSS]`, `[VOTE]` and invite, each with a
+   previewed email to the project's private list. The invite phase requires
+   a link to the `[RESULT][VOTE]` thread and, for podlings, a link to the
+   board or incubator NOTICE thread.
+2. **Discuss** and **vote** (`pages/discuss.js.rb`, `pages/vote.js.rb`,
+   `actions/update.json.rb`). Members of the project comment and vote
+   (`+1 +0 -0 -1`, a `-1` needs a comment) on a page addressed by the
+   token. The tally is mailed to the private list as `[RESULT]`.
+3. **Interview** (`pages/interview.js.rb`). The invitee follows the emailed
+   link, confirms name and email, answers three questions about the
+   ownership of their contributions, then fills in address, country,
+   telephone, preferred Apache ids and the project to notify.
+4. **Draft ICLA** (`actions/draft-icla.json.rb`). The server rejects Apache
+   ids already in use, records the submitter's IP address, and renders the
+   full ICLA text with the answers filled in for review.
+5. **Complete** (`pages/complete.js.rb`). States that a real application
+   would commit the file to SVN with the IP address in the commit message,
+   email the PMC, and submit an account request when an id was given.
+
+No link from the production site points at it, and the account request,
+SVN commit and signature steps were never built. It is nonetheless the only
+existing design for a submitter-facing form and for tying an ICLA to a
+project's vote.
+
+### 14.3 From filed ICLA to account
+
+An ICLA on file does not create an account. The two paths that do:
+
+- **At filing time** (`actions/icla.json.rb`). If the operator fills in both
+  a project and an Apache id on the ICLA form, and pastes a vote link, the
+  workbench appends a line to `infra/acreq/new-account-reqs.txt` and mails
+  `root@apache.org` with the submitter and the project's private list
+  copied. The confirmation sent to the submitter is then
+  `icla-account-requested.erb`. If only a project is given, the
+  confirmation is `icla-pmc-notified.erb`, which copies the project's
+  private list and asks the submitter to tell the project their preferred
+  id. With neither, the plain `icla.erb` goes out and no project hears
+  anything.
+- **Later, by the project** (`www/officers/acreq.cgi`). A chair or member
+  opens the account request helper, which lists people whose `iclas.txt`
+  line still starts with `notinavail` (derived from the recent diff of the
+  file, `ASF::ICLA.unlisted_name_by_email`), picks one, chooses an Apache
+  id that is not taken in `iclas.txt`, the mail aliases or the pending
+  requests, selects the project and supplies a vote link or comment. The
+  script appends the same `new-account-reqs.txt` line and sends the same
+  `[FORM] Account Request` mail, copying root, secretary, the project's
+  private list and the person.
+
+So the signal from the Secretary back to the project is a copy of the
+acknowledgement email when the ICLA names a project. If the submitter left
+the "notify project" field empty or named it in a way the parser did not
+recognise, the project only finds out by asking the person or by watching
+the `acreq` helper's list. Nothing links the project's vote, the invitation
+email, the ICLA and the account request to each other except free-text
+vote links.
+
+### 14.4 Membership applications and the meeting
+
+Membership applications are checked against the meeting, but indirectly:
+
+- After the members meeting, the Secretary creates
+  `Meetings/<date>/memapp-received.txt` from `nominated-members.txt` and the
+  vote results, one line per elected nominee with four flags (`invite`,
+  `apply`, `mail`, `karma`), an Apache id and a name. The runbook in the
+  Meetings directory describes this; `www/members/check_invitations.cgi`
+  cross-checks nominations, invitations sent to `members@` and the file.
+- The workbench membership application form (`forms/memapp.js.rb`) loads
+  that file through `/memapp.json` (`ASF::MeetingUtil.parse_memapp_to_h`)
+  and offers only the listed people in its applicant drop-down. If the file
+  is missing, the form refuses with a message pointing at the runbook. The
+  operator must therefore match the incoming application to an elected
+  nominee by hand, but cannot file one for anyone not on the list.
+- Filing (`actions/memapp.json.rb`) sets the `apply`, `mail` and `karma`
+  flags for that line to `yes`, adds the person to `members.txt` and to the
+  LDAP `member` group, and drops subscription requests.
+- Section 2 of this document describes the application window: the form
+  is only offered while `ASF::MeetingUtil.applications_valid` is true for
+  the message's envelope date; afterwards the late-application reply is the
+  only option.
+
+The verification is thus "is this person on the elected list", enforced by
+the drop-down. There is no check that the name or email in the application
+matches the nominee, only the operator's judgement.
