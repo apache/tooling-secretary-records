@@ -49,12 +49,14 @@ it serves.
 | Secretary | the officer | everything; signs outgoing mail with the office title |
 | Assistant Secretary | the officer | everything; signs with the office title |
 | Secretarial team | members appointed to help | everything except maintaining configuration; signs as "Secretarial Team" |
-| ASF member | any member | read-only view of the queue and history (open question 1) |
 | Admin | Tooling/Infra | configuration, server status, data browser, read-only mode |
 | Submitter | the person who sent the document | never logs in; interacts only by email |
 
-- **R-1 (change)** Mutating actions are limited to the secretary roles above.
-  Today anyone who passes the members-and-officers login can file documents.
+- **R-1 (change)** Access, reading included, is limited to the secretary
+  roles above because the queue holds personal data. Today anyone who
+  passes the members-and-officers login can view and file documents. ASF
+  members at large get no access; the related tools that members use
+  (section 3.11) keep their own, narrower views.
 - **R-2 (preserve)** The signature and From line of outgoing mail depend on
   the role of the logged-in operator.
 - **R-3 (new)** Roles come from `committee-info.txt` (the Secretary and
@@ -121,6 +123,18 @@ originals kept.
   or layout fingerprinting otherwise.
 - **F-21 (new)** OCR and extraction must work with Chinese characters (and
   other non-Latin scripts) in names and addresses.
+- **F-29 (new)** The body text of the document is verified against the
+  canonical agreement text, so that a file classified as an ICLA really is
+  the ICLA, a CCLA really is the CCLA, and a grant really is the grant
+  template. The tool keeps the published versions of each agreement
+  (today ICLA V2.0, the corporate CLA and the software grant template) and
+  compares the extracted text clause by clause, tolerant of OCR noise and
+  line wrapping but not of missing, added or reworded clauses. The result
+  records which agreement and version was signed and lists every
+  deviation; a document with deviations cannot be filed until the operator
+  has looked at them, and a document matching no known agreement is
+  classified as unknown. Today nothing checks this; the parser only skips
+  known boilerplate lines when hunting for field values.
 - **F-22 (new)** Fields extracted per type, at least: full legal name, public
   name, family name (and whether family name comes first), email, residence
   address, project, desired apache.org id with alternatives (split on space,
@@ -157,9 +171,11 @@ originals kept.
   key" reply is sent automatically and the message is marked as awaiting the
   submitter. The operator is told, and can suppress automatic replies per
   message.
-- **F-34 (new)** DocuSign envelopes are recognised, their completion
-  certificate validated (certificate parsing, or the DocuSign API if an
-  integration is approved), and a valid envelope counts as a signed document.
+- **F-34 (new)** DocuSign envelopes are recognised and their completion
+  certificate validated by parsing the certificate and the envelope's
+  signing data; a valid envelope counts as a signed document. An account
+  and API integration is out of scope for the first version and can be
+  added behind the same verification interface later.
 - **F-35 (preserve)** A document with a good hand signature and a bad digital
   signature can be filed without the signature file.
 
@@ -350,7 +366,7 @@ unfinished demo of a submitter-facing form at `www/project/icla/`
   normalisation and OCR steps are skipped. Email submission stays supported
   for people who cannot or will not use the form.
 
-### 3.13 Invitation and account request (new)
+### 3.13 Invitation, submission and account request (new)
 
 Today a project votes on a new committer on its private list, a member
 sends an invitation by hand asking for an ICLA, and the Secretary files the
@@ -362,36 +378,51 @@ the form carries an id, a project and a vote link, or later by the project
 through the `acreq` helper, which lists everyone with an ICLA and no id
 (WORKBENCH.md section 14.3).
 
-- **F-110** A PMC or PPMC member can register an invitation: project, the
-  person's name and email, the vote result link, and for podlings the
-  NOTICE link, as the Whimsy demo collects them. The tool records it as an
-  expected ICLA and sends the invitation email with a personal link to the
-  submission form (F-101).
-- **F-111** An incoming ICLA, whether through the form or by email, is
-  matched to open invitations by email address, name and the project named
-  on the form (F-102), and the match is shown on the work item. The ICLA filing form is then prefilled with the
-  project and vote link, so the operator does not retype them.
-- **F-112** When an ICLA matched to an invitation is filed, the project is
-  told, by email to its private list and by the invitation's status in the
-  tool, that the agreement is on file. The notification is sent regardless
-  of what the submitter wrote in the "notify project" field.
-- **F-113** The invitation carries the preferred Apache id, chosen by the
-  invitee on the form and validated for availability against `iclas.txt`,
-  the mail aliases and pending requests, so that the account request can
-  be prepared without a second round trip.
-- **F-114** An ICLA filing does not itself request an account. The account
-  request is a separate step the project triggers from the invitation
-  record once the ICLA is on file, unless the project opted at invitation
-  time to have it raised automatically. Either way the request is emitted
-  as a record-change event (F-64) rather than written directly, with the
-  `new-account-reqs.txt` line and `root@` mail kept only as long as the
-  account service needs them.
+The invitation flow belongs in the roster tool (decision 7): that is where
+a project already adds committers who have an account, and inviting a
+person who does not have one yet is the same action one step earlier. The
+submission form lives in this tool, since it feeds the queue. The split is:
+
+**Expected of the roster tool** (so that this tool can rely on it):
+
+- **F-110** A PMC or PPMC member registers an invitation in the roster tool:
+  project, the person's name and email, the vote result link, and for
+  podlings the NOTICE link, as the Whimsy demo collects them. The roster
+  tool sends the invitation email with a personal link to this tool's
+  submission form (F-101) and publishes the invitation as a record this
+  tool can read, by the shared event transport or an API.
+- **F-113** The invitation record carries the preferred Apache id once the
+  invitee has chosen it on the submission form, validated for availability
+  against `iclas.txt`, the mail aliases and pending requests.
 - **F-115** Invitations that have not produced an ICLA after a configurable
-  period are listed to the project with the option to remind or withdraw,
-  replacing the project's current habit of polling the `acreq` list.
-- **F-116** The `acreq` helper's function, requesting an account for an
-  existing ICLA without an invitation, remains available for the cases an
-  invitation did not precede, with the same validation.
+  period are listed to the project in the roster tool with the option to
+  remind or withdraw, replacing the project's current habit of polling the
+  `acreq` list.
+- **F-116** Requesting an account for an existing ICLA that had no
+  invitation, the `acreq` helper's function today, moves to the roster tool
+  with the same validation.
+
+**This tool:**
+
+- **F-101** (section 3.12) hosts the submission form the invitation links
+  to, and records the invitation id with the submission.
+- **F-111** An incoming ICLA, whether through the form or by email, is
+  matched to open invitations by invitation id when it came through the
+  form, and otherwise by email address, name and the project named on the
+  form (F-102). The match is shown on the work item, and the filing form is
+  prefilled with the project and vote link so the operator does not retype
+  them.
+- **F-112** When an ICLA matched to an invitation is filed, the invitation
+  record is updated (event, F-64) and the project is told by email to its
+  private list that the agreement is on file, regardless of what the
+  submitter wrote in the "notify project" field.
+- **F-114** An ICLA filing does not itself request an account. The account
+  request is the project's step in the roster tool, triggered from the
+  invitation record once it shows the ICLA on file, or raised automatically
+  if the project opted for that when inviting. This tool emits the
+  "ICLA filed" event and nothing more; the `new-account-reqs.txt` line and
+  `root@` mail the workbench writes today move with the request to the
+  roster tool for as long as the account service needs them.
 
 ---
 
@@ -409,7 +440,9 @@ through the `acreq` helper, which lists everyone with an ICLA and no id
   under the same access control as the raw mail, and retention of raw mail
   and derived files follows a documented policy (open question 3).
 - **N-4 Security** Attachments are untrusted input: converters and OCR run
-  with resource limits and no network; HTML mail is sanitised; non-safe
+  locally in a contained environment with resource limits and no network
+  ingress or egress, and document contents are never sent to a hosted
+  service; HTML mail is sanitised; non-safe
   attachment types need the interstitial; keyserver downloads are
   size-limited; file names written to SVN are validated.
 - **N-5 Internationalisation** Names and addresses in any script are stored,
@@ -446,7 +479,7 @@ Mirrors the Board Agenda Tool so that the Tooling team can maintain both.
 | Mail in | A delivery path that does not require the web process to run on the mail host: pipe from the relay into an intake endpoint, LMTP, or IMAP polling of the `officers-secretary` archive (open question 4). |
 | Pubsub | `asfpy.pubsub` listener for changes to the SVN paths above, with the reconnect and catch-up behaviour BAT has. |
 | Scheduled work | `quart-tasks` cron jobs: emeritus and withdrawal timers, re-verification of pending signatures, reminder to submitters awaiting a reply, intake backlog checks. |
-| External tools | GPG; poppler or `pikepdf`/`pypdf` for split, merge and rotate; `img2pdf`; Tesseract with CJK language packs (or an equivalent OCR engine, open question 5); all invoked with timeouts and resource limits. |
+| External tools | GPG; poppler or `pikepdf`/`pypdf` for split, merge and rotate; `img2pdf`; Tesseract with CJK language packs, run locally in a sandbox with no network (decision 5); all invoked with timeouts and resource limits. |
 | Configuration | `config.yaml` with defaults in `app/config.py`, written by Puppet in production; feature flags for automatic replies and DocuSign. |
 | Telemetry | OpenTelemetry route and database telemetry as in BAT, with document contents excluded. |
 | Documentation | In-app Documentation page from markdown per role (`app/md/documentation/`), changed in the same PR as the behaviour; `docs/` for maintainers; the design book covers every new component. |
@@ -475,9 +508,10 @@ Workflow state the database holds; everything filed stays in SVN.
 - **Action**: submission, kind (file ICLA, reject, forward, …), operator,
   started and finished at, steps with status and transcript, SVN revisions,
   events emitted, emails sent.
-- **Invitation**: project, invitee name and email, inviting member, vote
-  and NOTICE links, preferred Apache id, status (sent, ICLA received, ICLA
-  filed, account requested, withdrawn), linked submission, reminders sent.
+- **Invitation** (owned by the roster tool, mirrored here read-only):
+  invitation id, project, invitee name and email, vote and NOTICE links,
+  preferred Apache id, status; the linked submission is recorded on this
+  side.
 - **RejectionReason**: key, label, explanation, kind (reason or also-fix),
   active flag, order.
 - **AutomaticReply**: submission, kind, sent at, suppressed by.
@@ -498,23 +532,32 @@ Workflow state the database holds; everything filed stays in SVN.
 
 ---
 
-## 8. Open questions
+## 8. Decisions taken
 
-1. Do ASF members at large get read access to the queue, or only the
-   secretarial roles? Today any member can log in and act.
+Answers given by the Secretary and the project lead on the first draft's
+open questions, kept here with their numbers so references stay valid.
+
+1. **Access** is restricted to the secretarial team because of the personal
+   data in the queue (R-1). Members at large get no access.
+5. **OCR runs locally**, in a contained environment with no network
+   ingress or egress; document contents are not shared with any other
+   party (N-4, section 5).
+6. **DocuSign** starts with certificate verification only (F-34).
+7. **The invitation flow lives in the roster tool**, next to adding
+   existing committers to a project; the submission form lives in this
+   tool (section 3.13).
+
+---
+
+## 9. Open questions
+
 2. Which of the related CGI tools move into the replacement, and which are
    retired or moved elsewhere?
 3. Retention policy for raw mail, derived files and OCR text, given the
    personal data they hold.
 4. Mail delivery path into the tool: pipe from the relay, LMTP, or IMAP
    polling of the existing archive.
-5. OCR engine: Tesseract with CJK packs, or a hosted service; the choice
-   affects where document contents travel.
-6. DocuSign: certificate validation only, or an account and API integration?
-7. The submission form (F-101) and invitation flow (section 3.13) are new
-   user-facing surfaces for projects and invitees, outside the secretarial
-   roles. Do they live in this tool, or in the roster tool, with this tool
-   consuming the invitation record?
-8. Record-change events (F-64, F-114): transport, schema and the consumer
-   on the roster and directory side are to be defined together with the
-   Board Agenda Tool's split, so the two tools emit the same kind of event.
+8. Record-change events (F-64, F-112, F-114) and the invitation record
+   (F-110): transport, schema and the consumer on the roster and directory
+   side are to be defined together with the Board Agenda Tool's split, so
+   the tools emit and read the same kind of event.
