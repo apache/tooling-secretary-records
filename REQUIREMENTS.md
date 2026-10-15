@@ -318,6 +318,30 @@ unfinished demo of a submitter-facing form at `www/project/icla/`
   required fields present; email well-formed. This is a change to the form,
   not to the tool, and server-side validation in section 3.3 stays necessary
   because not every PDF viewer runs form scripts.
+- **F-102 (new)** The "notify project" field on the PDF form becomes a
+  choice field (an AcroForm combo box) listing the current PMCs, podlings
+  and other committees with LDAP groups, so the submitted value is a
+  committee name rather than free text to normalise. Today that
+  normalisation strips "Apache", "(podling)" and "project", maps
+  `commons-*` and `log*` prefixes, and consults an alias table, and still
+  fails often enough that the filing form shows the raw value beside the
+  guess (WORKBENCH.md section 9). Consequences the tool has to own:
+  - The form is generated, not hand-edited. The tool, or a job beside
+    it, regenerates the PDF whenever `committee-info.txt` or the podling
+    list changes and publishes it to the website, with a version or
+    generation date in a hidden field so the parser knows which
+    vocabulary a submitted form used.
+  - The export value of each entry is the stable committee name; the
+    display text is the display name. The parser reads the export value
+    when the form data survived, and falls back to matching the display
+    text when the PDF was flattened, printed to PDF or scanned.
+  - The combo box stays editable so a stale copy of the form, which
+    people keep for months, can still name a project established after
+    it was generated; those values go through the old normalisation.
+  - Projects terminated after the form was generated show up as unknown,
+    which the work item flags the same way it does today.
+  - The same generated list feeds the online submission form (F-101) and
+    the invitation form (F-110), so all three agree on the vocabulary.
 - **F-101 (new)** The tool offers an online submission form, reached from
   the invitation link in section 3.13 or from the public page. It collects
   the ICLA fields with validation, produces the agreement for the submitter
@@ -344,8 +368,8 @@ through the `acreq` helper, which lists everyone with an ICLA and no id
   expected ICLA and sends the invitation email with a personal link to the
   submission form (F-101).
 - **F-111** An incoming ICLA, whether through the form or by email, is
-  matched to open invitations by email address and name, and the match is
-  shown on the work item. The ICLA filing form is then prefilled with the
+  matched to open invitations by email address, name and the project named
+  on the form (F-102), and the match is shown on the work item. The ICLA filing form is then prefilled with the
   project and vote link, so the operator does not retype them.
 - **F-112** When an ICLA matched to an invitation is filed, the project is
   told, by email to its private list and by the invitation's status in the
