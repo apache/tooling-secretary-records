@@ -4,7 +4,7 @@ The Secretary Workbench is the web application the ASF Secretary and
 Secretarial Team use to process the paperwork that arrives at
 `secretary@apache.org`: ICLAs, CCLAs, software grants, membership
 applications, emeritus and withdrawal requests. It turns each incoming email
-with attachments into a work item, lets the operator inspect and clean up the
+with attachments into a work item, lets the operator inspect and verify the
 attachments, and then files the document in Subversion, updates the relevant
 index files and LDAP, and sends the acknowledgement or rejection email, all
 from one screen.
@@ -149,7 +149,9 @@ Message-IDs) and records:
 Special case: a message with no attachments whose subject contains `CLA` but
 not `ICLA`/`iCLA` and is not a reply gets a synthetic attachment named
 `rawmessage.txt` so that CCLA requests sent as plain text appear in the
-workbench.
+workbench. The only CCLA plain text messages accepted contain additional
+authorized contributors. These messages are acknowledged and filed as plain
+text but no further action is taken.
 
 `Message.attachments(headers)` is the filter used everywhere a list of
 attachments is shown. It drops entries marked `:deleted`, drops
@@ -744,6 +746,11 @@ does today and what is missing.
 | 7 | **Unreadable documents get a reply recommending the submission form.** | The "unreadable or partial scan" reason exists, and `incomplete.erb` already links to `https://www.apache.org/licenses/contributor-agreements.html#submitting`. | A dedicated template or wording that explicitly recommends the online form, and possibly automatic sending when OCR confidence is too low. |
 | 8 | **Side-by-side viewer when a potential duplicate is found.** | The ICLA dry run warns "Found possible duplicate ICLAs" with links to the existing files in SVN (section 6.1); the operator opens them separately. | Split the content frame to show the existing ICLA next to the new one, with the extracted fields (name, email, id, address) compared. |
 | 9 | **A PDF form with built-in validation**: reject apache ids that are not lowercase or contain special characters, and refuse submission with missing required fields. | Outside the workbench. The ICLA form is published at `https://www.apache.org/licenses/contributor-agreements.html#submitting`; the workbench validates the id only after the fact (`check-id`, pattern `^[a-z][a-z0-9]{2,}$`). | Add AcroForm JavaScript validation to the published form (field patterns, required fields). Not every PDF viewer runs form scripts, so server-side validation in item 2 remains necessary. |
+| 10 | **Show text message and PDF form in view box at right.** | When validating a submitted form, either the text of the message or the PDF is displayed. Often it is useful to go back to the message while viewing the PDF. This cannot be done without closing the PDF and opening the message. | Reimplement the PDF view into two sections: the top shows the message text (can be hidden via a toggle) and the bottom shows the PDF. |
+| 11 | **Make rejections/"more information" easier to add.** | The rejection/request for more information buttons contain: a boolean (reject or just send a message); a summary of the request for the UI button; and a message to become part of an email reply to the user. | It should be easier for secretary to add new reasons to reject or to ask for more information from the submitter. |
+| 12 | **Allow secretary to add a paragraph to the reply to submitter.** | Once the reject button is pushed, the message to the submitter is locked in. Often, an additional note to the submitter is needed, which now requires going to the secretary's mail inbox and replying to the message. | The reply to the user is displayed in order to verify the reply, but this feature would allow secretary to type some additional information to become part of the response to the submitter. |
+| 13 | **Improve parsing of "notify project" field of PDF.** | The project field is often mis-parsed due to additional information. For example, Äpache Foo (incubating)" | Extra words such as Apache, apache, incubating, (incubating) should be ignored so only the name of the project is left to be used. |
+| 14 | **Parse CCLA and SGA forms.** | Only ICLA forms are parsed and the information copied to the UI. | CCLA and SGA forms should be parsed. |
 
 Common thread: items 1 to 4 and 7 all benefit from a processing step at
 delivery time whose results are stored in the message's YAML entry. The
