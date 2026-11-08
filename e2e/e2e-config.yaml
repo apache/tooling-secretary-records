@@ -1,0 +1,13 @@
+base:
+  # gitignored, and thrown away by serve.py at every start
+  state_dir: state-e2e
+  dev_mode: false
+
+server:
+  host: 127.0.0.1
+  port: 8099
+  certfile: null
+  keyfile: null
+
+logging:
+  file: state-e2e/secretary-records.log

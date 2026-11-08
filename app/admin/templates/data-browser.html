@@ -1,0 +1,38 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+  Data browser
+{% endblock title %}
+
+{% block page_title %}
+  Data browser
+{% endblock page_title %}
+
+{% block content %}
+  {% if not tables %}
+    <p data-testid="no-tables">The database has no tables yet.</p>
+  {% else %}
+    <nav class="mb-3" aria-label="Tables">
+      {% for name in tables %}
+        <a href="{{ url_for('client.admin.data', table_name=name) }}"
+           {% if name == table_name %}aria-current="page"{% endif %}>{{ name }}</a>
+      {% endfor %}
+    </nav>
+    <div class="table-responsive">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            {% for column in columns %}<th scope="col">{{ column }}</th>{% endfor %}
+          </tr>
+        </thead>
+        <tbody>
+          {% for record in records %}
+            <tr>
+              {% for column in columns %}<td>{{ record[column] }}</td>{% endfor %}
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% endif %}
+{% endblock content %}

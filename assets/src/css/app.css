@@ -1,0 +1,332 @@
+/* The design tokens are BAT's, copied from apache/tooling-agenda's assets/src/css/app.css
+   with docs/design-book.html: this tool follows that book (REQUIREMENTS.md, N-6 and
+   section 5), and the `--bat-*` names are the book's own. Change a token there first. */
+
+/* Design tokens. Every colour, size, spacing step and duration resolves to one of
+   these; docs/design-book.html says what each is for. Named for meaning rather than
+   appearance, so a value can change without its uses becoming wrong. */
+:root {
+  /* Brand: the custom properties www.apache.org declares in its own :root. */
+  --bat-navy: #28265e;
+  --bat-purple: #7c297d;
+  --bat-red: #d22128;
+  --bat-orange: #dd552c;
+  --bat-lavender: #fef4ff;
+
+  /* Additions the brand set does not cover. The brand orange is 4.0:1 on white, so it
+     is a fill and never text; --bat-orange-text is the darkened variant for text. The
+     amber is 1.9:1 and needs the same, which is where the awaiting chip sets its words. */
+  --bat-orange-text: #a8421d;
+  --bat-amber-text: #8a6003;
+
+  /* Two ambers, both the Foundation's, and neither a mistake: this one is from the
+     www.apache.org :root the rest of this palette comes from, and the mark carries
+     #F79A23, which is the fourth ink of the feather itself. They are near neighbours and
+     look like a typo of each other. They are not, so do not reconcile them: the interface
+     is the site's palette and the mark is the feather's. */
+  --bat-amber: #f7ae18;
+  --bat-feather-amber: #f79a23;
+  --bat-green: #17614a;
+
+  /* Semantic roles: one meaning per hue. A state without an entry here has no colour. */
+  --bat-missing: var(--bat-red);
+  --bat-flagged: var(--bat-orange);
+  --bat-awaiting: var(--bat-amber);
+  --bat-comment: var(--bat-purple);
+  --bat-done: var(--bat-green);
+
+  /* Neutrals, biased violet toward the navy rather than pure grey. */
+  --bat-ink: #17161f;
+  --bat-body: #34313f;
+  --bat-muted: #6b6779;
+  --bat-rule: #d1d2d3;
+  --bat-rule-soft: #eceaf0;
+  --bat-paper: #f8f9fa;
+  --bat-surface: #ffffff;
+  --bat-plate: #f6f7f8;
+
+  /* Chip grounds: each semantic hue at the weight a small tinted label needs. */
+  --bat-tint-missing: #fdecec;
+  --bat-tint-flagged: #fdf0e9;
+  --bat-tint-awaiting: #fdf6e2;
+  --bat-tint-comment: var(--bat-lavender);
+  --bat-tint-done: #e7f1ed;
+  --bat-tint-action: #ecebf3;
+
+  /* Type scale, in rem so the reader's browser text-size setting reaches everything. */
+  --bat-text-display: 2rem;
+  --bat-text-section: 1.25rem;
+  --bat-text-sub: 1rem;
+  --bat-text-body: 1rem;
+  --bat-text-ui: 0.875rem;
+  --bat-text-data: 0.8125rem;
+  --bat-text-label: 0.6875rem;
+  --bat-text-micro: 0.75rem;
+
+  /* Space: a 4px base step. */
+  --bat-space-1: 0.25rem;
+  --bat-space-2: 0.5rem;
+  --bat-space-3: 0.75rem;
+  --bat-space-4: 1rem;
+  --bat-space-6: 1.5rem;
+  --bat-space-8: 2rem;
+  --bat-radius: 6px;
+  --bat-radius-sm: 3px;
+
+  /* Motion. Three durations and one curve; anything that reflects data changes
+     instantly, because a transition only delays the message. */
+  --bat-quick: 120ms;
+  --bat-move: 200ms;
+  --bat-ease: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Bootstrap resolves its utilities from these at runtime. The -rgb triples cannot be
+     var() references - Bootstrap composes them into rgba() - so they repeat the token
+     values; keep them in step. Components Bootstrap compiles as literals are overridden
+     further down. */
+  --bs-primary: #28265e;
+  --bs-primary-rgb: 40, 38, 94;
+  --bs-secondary: #6b6779;
+  --bs-secondary-rgb: 107, 103, 121;
+  --bs-success: #17614a;
+  --bs-success-rgb: 23, 97, 74;
+  --bs-danger: #d22128;
+  --bs-danger-rgb: 210, 33, 40;
+  --bs-warning: #f7ae18;
+  --bs-warning-rgb: 247, 174, 24;
+  --bs-info: #7c297d;
+  --bs-info-rgb: 124, 41, 125;
+  --bs-body-color: #34313f;
+  --bs-body-color-rgb: 52, 49, 63;
+  --bs-emphasis-color: #17161f;
+  --bs-border-color: #d1d2d3;
+  --bs-border-radius: 6px;
+  --bs-border-radius-sm: 3px;
+  --bs-link-color: #28265e;
+  --bs-link-color-rgb: 40, 38, 94;
+
+  /* Both, because Bootstrap's reboot reads neither name directly: `a` resolves
+     `rgba(var(--bs-link-color-rgb), ...)` and `a:hover` redefines that triple from
+     --bs-link-hover-color-rgb. Set the hex alone and every link in the product hovers
+     Bootstrap blue, which is what it did until this pair was written. */
+  --bs-link-hover-color: #16153a;
+  --bs-link-hover-color-rgb: 22, 21, 58;
+  --bs-secondary-color: #6b6779;
+  --bs-tertiary-bg: #f6f7f8;
+
+  /* Bootstrap styles its components from these rather than inheriting from body. */
+  --bs-font-sans-serif: 'Open Sans', system-ui, -apple-system, 'Segoe UI', roboto, sans-serif;
+  --bs-body-font-family: var(--bs-font-sans-serif);
+
+  /* code is an identifier - a uid, a filename, a revision - not an accent */
+  --bs-code-color: var(--bat-muted);
+}
+
+/* ---------------------------------------------------------------------------
+   The dark theme.
+
+   Designed, not inverted (docs/design-book.html chapter 17): the same eight
+   meanings, each given a value that carries it on a dark ground rather than the
+   light one turned upside down. The mapping above holds exactly - navy still
+   means structure, red still means missing - so every rule written against a
+   token above is already correct here and nothing below this block names a
+   theme. What changes is which side of the pair is the ground: in light
+   `--bat-navy` is a fill carrying `--bat-surface` text, and in dark it is a pale
+   periwinkle carrying the same token, which is now the dark one.
+
+   `data-bs-theme` and not an attribute of our own. Bootstrap's stylesheet
+   already reads it and brings its own components - form controls, the close
+   button, the switch - with it, and a document has one theme, so stating it
+   twice is two things to keep in step. Three settings resolve to two values:
+   preferences.ts turns "follow system" into whichever the machine asks for,
+   which is why there is no prefers-color-scheme block here to drift from this
+   one.
+
+   It is in two halves, and the line between them is what prints. Paper is white
+   whatever the screen is doing, so the literal values are behind `@media screen`
+   and the light ones above stand when the page goes to a printer. The Bootstrap
+   bridge is not behind it and does not need to be: every value there is a
+   `var(--bat-*)`, so it follows this palette on a screen and the light one on
+   paper without being stated twice. The three literals that cannot do that -
+   Bootstrap composes the `-rgb` triples into `rgba()` itself - sit in the first
+   half with the tokens they repeat.
+   --------------------------------------------------------------------------- */
+@media screen {
+  :root[data-bs-theme='dark'] {
+    --bat-navy: #8f8cd8;
+    --bat-purple: #b98fd8;
+    --bat-red: #f2707f;
+    --bat-orange: #f3a35c;
+    --bat-lavender: #281f36;
+    --bat-amber: #f3c96a;
+    --bat-green: #4bbf9a;
+
+    /* --bat-feather-amber is deliberately absent from this list. It is the fourth ink of
+       the feather rather than a colour of ours, and the mark that carries it is an SVG
+       with the four inks written into its own gradient - no rule here reads the token,
+       which is why re-stating it for this theme would change nothing anyway. */
+
+    /* Both darkened-for-white variants go back to the hue itself. They existed to buy
+       contrast against white; against #141219 the undarkened hue is what has it, and the
+       darkened one is what does not. */
+    --bat-orange-text: var(--bat-orange);
+    --bat-amber-text: var(--bat-amber);
+    --bat-ink: #f2f0f7;
+    --bat-body: #cdc9d8;
+    --bat-muted: #948fa4;
+    --bat-rule: #3a3646;
+    --bat-rule-soft: #2b2834;
+    --bat-paper: #141219;
+    --bat-surface: #1c1922;
+    --bat-plate: #221f2b;
+    --bat-tint-missing: #33191d;
+    --bat-tint-flagged: #33251a;
+    --bat-tint-awaiting: #332c18;
+    --bat-tint-comment: var(--bat-lavender);
+    --bat-tint-done: #16302a;
+    --bat-tint-action: #21203a;
+
+    /* The `-rgb` triples, which have to be here rather than in the bridge below: Bootstrap
+       composes them into `rgba()` itself, so they cannot be var() references and are the
+       one thing in this theme that repeats a value. Keep them in step with the six hues
+       and the two neutrals above. */
+    --bs-primary-rgb: 143, 140, 216;
+    --bs-secondary-rgb: 148, 143, 164;
+    --bs-success-rgb: 75, 191, 154;
+    --bs-danger-rgb: 242, 112, 127;
+    --bs-warning-rgb: 243, 201, 106;
+    --bs-info-rgb: 185, 143, 216;
+    --bs-body-color-rgb: 205, 201, 216;
+    --bs-link-color-rgb: 143, 140, 216;
+    --bs-link-hover-color-rgb: 242, 240, 247;
+    --bs-body-bg-rgb: 20, 18, 25;
+  }
+}
+
+/* The Bootstrap bridge at this theme's values, and outside `@media screen` on purpose:
+   every one of these is a var(), so on paper - where the tokens above revert - each
+   follows without a print block having to name it. Bootstrap's own dark block sets most
+   of them too, in its blue-grey palette; this beats it on specificity, because a violet
+   neutral ramp next to a blue-grey one is the mismatch a reader would name first. */
+:root[data-bs-theme='dark'] {
+  --bs-primary: var(--bat-navy);
+  --bs-secondary: var(--bat-muted);
+  --bs-success: var(--bat-green);
+  --bs-danger: var(--bat-red);
+  --bs-warning: var(--bat-amber);
+  --bs-info: var(--bat-purple);
+  --bs-body-color: var(--bat-body);
+  --bs-emphasis-color: var(--bat-ink);
+  --bs-border-color: var(--bat-rule);
+  --bs-border-color-translucent: var(--bat-rule);
+  --bs-link-color: var(--bat-navy);
+  --bs-link-hover-color: var(--bat-ink);
+  --bs-secondary-color: var(--bat-muted);
+  --bs-tertiary-bg: var(--bat-plate);
+
+  /* Bootstrap's dark default is #212529, a blue-grey, and a violet neutral ramp next to a
+     blue-grey one is the mismatch a reader would name first. */
+  --bs-body-bg: var(--bat-paper);
+  --bs-secondary-bg: var(--bat-plate);
+
+  /* The subtle families, which Bootstrap's dark block otherwise answers in its own
+     palette. Four of these are used by name - bg-primary-subtle, bg-secondary-subtle,
+     bg-danger-subtle and border-secondary-subtle - and the rest are here so that the
+     fifth call site does not have to think about it. */
+  --bs-primary-bg-subtle: var(--bat-tint-action);
+  --bs-secondary-bg-subtle: var(--bat-plate);
+  --bs-success-bg-subtle: var(--bat-tint-done);
+  --bs-danger-bg-subtle: var(--bat-tint-missing);
+  --bs-warning-bg-subtle: var(--bat-tint-awaiting);
+  --bs-info-bg-subtle: var(--bat-tint-comment);
+  --bs-secondary-border-subtle: var(--bat-rule);
+  --bs-primary-text-emphasis: var(--bat-navy);
+  --bs-secondary-text-emphasis: var(--bat-muted);
+  --bs-success-text-emphasis: var(--bat-done);
+  --bs-danger-text-emphasis: var(--bat-missing);
+  --bs-warning-text-emphasis: var(--bat-amber-text);
+  --bs-info-text-emphasis: var(--bat-comment);
+
+  /* The words inside a <mark>: a line of a raw report that runs past 78 characters. The
+     ground is the amber at 40% over the surface, set on the mark itself, which in this
+     theme resolves to about #725f3f - so the text on it has to be the top of the ramp,
+     not the middle. --bat-body lands at 3.8:1 there and --bat-ink at 5.4:1. Bootstrap's
+     own dark value is a grey from its palette; its light value is the literal #212529,
+     which is why nothing needs saying about the light theme here. */
+  --bs-highlight-color: var(--bat-ink);
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* A visible keyboard ring on everything focusable: the tool is meant to be worked from
+   the keyboard (REQUIREMENTS.md, N-6), so this is a primary affordance, not a fallback. */
+:focus-visible {
+  outline: 2px solid var(--bat-navy);
+  outline-offset: 2px;
+}
+
+/* Montserrat structures and labels, Open Sans is read (design book chapter 03). */
+body {
+  font-size: var(--bat-text-body);
+  color: var(--bat-body);
+  background: var(--bat-paper);
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+.card-header {
+  font-family: 'Montserrat', var(--bs-font-sans-serif);
+}
+
+/* The page frame: the brand ribbon, a header naming the tool, and a single column. The
+   sidebar BAT has arrives when there is more than one page worth navigating to. */
+.sr-ribbon {
+  height: 4px;
+  background: linear-gradient(90deg, var(--bat-navy), var(--bat-purple), var(--bat-red), var(--bat-orange));
+}
+
+.sr-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bat-space-2) var(--bat-space-4);
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--bat-space-3) var(--bat-space-4);
+  border-bottom: 1px solid var(--bat-rule);
+  background: var(--bat-surface);
+}
+
+.sr-header .sr-brand {
+  font-family: 'Montserrat', var(--bs-font-sans-serif);
+  font-size: var(--bat-text-section);
+  font-weight: 600;
+  color: var(--bat-ink);
+  text-decoration: none;
+}
+
+.sr-header nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bat-space-4);
+  font-size: var(--bat-text-ui);
+}
+
+.sr-main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: var(--bat-space-6) var(--bat-space-4);
+}
+
+.sr-dev-banner {
+  padding: var(--bat-space-2) var(--bat-space-4);
+  font-size: var(--bat-text-ui);
+  color: var(--bat-amber-text);
+  background: var(--bat-tint-awaiting);
+}

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <meta name="description"
+          content="Secretary Records: the paperwork that arrives at secretary@apache.org" />
+    <title>
+      {% block title %}
+      {% endblock title %}
+    - Secretary Records</title>
+    {# The palette is decided before anything is drawn: everything else on the page is a
+       deferred module, and a theme applied after first paint is a white page turning dark
+       while you watch. It follows the machine; a stored preference arrives with the first
+       control that sets one. #}
+    <script nonce="{{ csp_nonce() }}">
+        (function() {
+            try {
+                document.documentElement.dataset.bsTheme =
+                    window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            } catch (error) {
+                document.documentElement.dataset.bsTheme = 'light';
+            }
+        })();
+    </script>
+    {% block stylesheets %}
+      <link rel="stylesheet"
+            href="{{ url_for('client.static', filename='vendor/css/bootstrap.min.css') }}" />
+      <link rel="stylesheet"
+            href="{{ url_for('client.static', filename='vendor/css/bootstrap-icons.min.css') }}" />
+      <link rel="stylesheet" href="{{ asset('css/app.css') }}" />
+      {% if svelte_page is defined %}
+        {% for css in css_for_svelte_page(svelte_page) %}<link rel="stylesheet" href="/assets/{{ css }}" />{% endfor %}
+      {% endif %}
+    {% endblock stylesheets %}
+  </head>
+  <body>
+    <div class="sr-ribbon"></div>
+    <header class="sr-header">
+      <a class="sr-brand" href="{{ url_for('client.home') }}">Secretary Records</a>
+      <nav aria-label="Main">
+        {% if current_user %}
+          {% if current_user.roles %}<a href="{{ url_for('client.documentation') }}">Documentation</a>{% endif %}
+          {% if current_user.has_role('admin') %}
+            <a href="{{ url_for('client.admin.server_status') }}">Server status</a>
+          {% endif %}
+          <a href="{{ url_for("oauth_endpoint") }}?logout=/">Sign out</a>
+        {% else %}
+          <a href="{{ url_for("oauth_endpoint") }}?login={{ request.path }}">Sign in</a>
+        {% endif %}
+      </nav>
+    </header>
+    {% if dev_mode %}
+      <div class="sr-dev-banner">
+        This instance is running in dev mode and is <strong>not</strong> connected to production data.
+      </div>
+    {% endif %}
+    <main class="sr-main">
+      <h1 class="h4 mb-4">
+        {% block page_title %}
+        {% endblock page_title %}
+      </h1>
+      {% block content %}
+      {% endblock content %}
+    </main>
+    {% block javascripts %}
+      {% if svelte_page is defined %}
+        <script type="module" src="{{ asset('js/pages/' + svelte_page + '.ts') }}"></script>
+      {% endif %}
+    {% endblock javascripts %}
+  </body>
+</html>
