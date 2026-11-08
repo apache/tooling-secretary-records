@@ -1,0 +1,66 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make container-check:*)",
+      "Bash(make container-pytest:*)",
+      "Bash(make container-quality:*)",
+      "Bash(make container-quality-base:*)",
+      "Bash(make container-test:*)",
+      "Bash(make container-test-coverage:*)",
+      "Bash(make container-test-py314:*)",
+      "Bash(make container-verify:*)",
+      "Bash(make e2e-quick:*)",
+      "Bash(make e2e-test:*)",
+      "Bash(make e2e-typecheck:*)",
+      "Bash(scripts/container.sh:*)",
+      "Bash(scripts/e2e-container.sh:*)",
+      "Bash(.claude/hooks/guard-bash.test.sh:*)",
+      "Bash(git blame:*)",
+      "Bash(git branch --list:*)",
+      "Bash(git diff:*)",
+      "Bash(git fetch:*)",
+      "Bash(git log:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git show:*)",
+      "Bash(git status:*)",
+      "Bash(git worktree list:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh pr diff:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh run list:*)",
+      "Bash(gh run view:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Bash(head:*)",
+      "Bash(ls:*)",
+      "Bash(rg:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./apptoken.txt)",
+      "Read(./config.yaml)",
+      "Read(./state/**)",
+      "Read(./**/*.pem)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/guard-bash.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
