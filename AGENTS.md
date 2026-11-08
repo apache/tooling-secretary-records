@@ -317,12 +317,17 @@ updates is incomplete. [assets/AGENTS.md](assets/AGENTS.md) has the rest.
 
 ## Adding tables to the DB
 
-The admin data browser (`/admin/data`, `app/admin/routes.py`) lists every table
-in `DBBase.metadata`, so a new model is in it without being registered. What is
-left to decide is the reading: the browser shows every column to an admin, who
-does not read the queue (REQUIREMENTS.md, section 2). A table holding document
-contents or extracted personal fields needs the browser to leave those columns
-out, in the same pull request that adds it.
+Personal data is the secretarial roles' alone. Admin - the Tooling PMC and infra root - keeps the
+tool running and is never sent a personal field: not shown, and not selected or serialised either,
+so it does not travel over the wire to them.
+
+The admin data browser (`/admin/data`, `app/admin/routes.py`) shows a table only
+where `BROWSABLE` lists it, and only the columns listed there: an admin does not
+read the queue (REQUIREMENTS.md, section 2), and a browser read from the metadata
+would show a submission's name and address the moment its model existed. Each new
+table goes into `BROWSABLE`, with no column holding document contents or personal
+fields, or into `NOT_BROWSABLE`, in the pull request that adds it -
+`tests/test_admin_data.py` fails until it does.
 
 ## Pull requests
 

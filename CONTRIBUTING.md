@@ -283,9 +283,9 @@ scripts/container.sh uv run alembic -c app/db/alembic.ini revision --autogenerat
 ```
 
 The app applies pending migrations on startup, and refuses to start when the
-models and the migrated schema disagree. The admin data browser lists every table
-the models declare; a table holding personal fields needs it to leave those
-columns out (see AGENTS.md).
+models and the migrated schema disagree. The admin data browser shows only the
+tables and columns `BROWSABLE` lists, and a test fails on a table that is in neither
+`BROWSABLE` nor `NOT_BROWSABLE` (see AGENTS.md).
 
 ## Code Quality
 

@@ -103,6 +103,22 @@ refuse "scripts/container.sh make test && yarn test"
 # `make e2e-quick FILTER=...` is a container wrapper too - AGENTS.md lists it beside e2e-test
 allow 'make e2e-quick FILTER=presentation'
 allow 'make e2e-quick'
+
+# a wrapper handed a command of its own runs it on the host, in the recipe
+refuse "make e2e-quick FILTER='home; uv run pytest'"
+refuse "make container-pytest ARGS='\"; uv run pytest; echo \"'"
+refuse "make container-check --dry-run --eval='X := \$(shell touch x)'"
+refuse 'make container-check -f other.mk'
+refuse 'make container-check SHELL=/tmp/x'
+refuse "make container-test ARGS='-q | tee out'"
+# and plain values, quoted, still pass
+allow "make container-pytest ARGS='tests/test_access.py -k \"e2e or admin\" -q'"
+allow 'make container-pytest ARGS=tests/test_access.py'
+
+# a command the guard cannot read before it runs
+refuse '\uv run pytest'
+refuse "eval 'uv run pytest'"
+refuse 'x=uv; $x run pytest'
 allow 'make container-check'
 allow 'make container-test'
 allow 'make container-quality-update'

@@ -70,15 +70,25 @@ async def server_status() -> str:
     )
 
 
+BROWSABLE: Final[dict[str, tuple[str, ...]]] = {}
+"""Each table an admin may browse, with the columns shown. Name no column holding personal data: a
+name, an address, anything from a document."""
+
+NOT_BROWSABLE: Final[frozenset[str]] = frozenset()
+"""The tables deliberately kept out of the browser, because what they hold is the secretarial team's."""
+
+
 @ADMIN.route("/data")
 @ADMIN.route("/data/<table_name>")
 @quart_schema.validate_querystring(DataFilter)
 async def data(query_args: DataFilter, table_name: str | None = None) -> str:
-    """Browse the rows of any table the models declare.
+    """Browse the rows of the tables `BROWSABLE` lists, and only the columns it names for each.
 
-    Read from the metadata rather than from a list kept here, so a new table is in the browser
-    the moment its model exists - there is nothing to forget to register."""
-    tables = {table.name: table for table in DBBase.metadata.sorted_tables}
+    Opt-in rather than read from the metadata: Admin is the Tooling PMC and infra root, who do not
+    read the paperwork (REQUIREMENTS R-1), and a table read from the metadata would show a
+    submission's name and address the moment its model existed. tests/test_admin_data.py fails on a
+    table that is in neither `BROWSABLE` nor `NOT_BROWSABLE`, so each new model is a decision."""
+    tables = {table.name: table for table in DBBase.metadata.sorted_tables if table.name in BROWSABLE}
     if table_name is None:
         table_name = next(iter(tables), None)
     elif table_name not in tables:
@@ -88,8 +98,12 @@ async def data(query_args: DataFilter, table_name: str | None = None) -> str:
     records: list[dict[str, object]] = []
     if table_name is not None:
         table = tables[table_name]
-        columns = [column.name for column in table.columns]
-        statement = sqlalchemy.select(table).limit(query_args.page_size).offset(query_args.offset)
+        columns = list(BROWSABLE[table_name])
+        statement = (
+            sqlalchemy.select(*(table.c[name] for name in columns))
+            .limit(query_args.page_size)
+            .offset(query_args.offset)
+        )
         async with db.session() as session:
             records = [dict(row._mapping) for row in await session.execute(statement)]
 

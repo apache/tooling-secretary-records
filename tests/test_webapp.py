@@ -15,6 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import re
+
+import pytest
 import sqlalchemy
 
 from app import db
@@ -88,6 +91,7 @@ async def test_the_documentation_marks_the_sections_the_reader_holds(authenticat
     page = await response.get_data(as_text=True)
     assert 'data-doc-section="secretarial-team"' in page
     assert page.count('data-doc-mine="true"') == 1
+    assert re.search(r'data-doc-section="secretarial-team"\s+data-doc-mine="true"', page), "the one marked is theirs"
     assert 'data-doc-section="secretary"' in page
 
 
@@ -133,3 +137,46 @@ async def test_an_unknown_page_is_a_404_page(running_app):
 
     assert response.status_code == 404
     assert 'data-testid="error-message"' in await response.get_data(as_text=True)
+
+
+async def test_an_admin_does_not_see_the_queue(authenticated_client):
+    """Admin is the Tooling PMC and infra root, who keep the tool running and do not read the paperwork
+    (REQUIREMENTS R-1)."""
+    client = await authenticated_client("zed", roles="admin")
+
+    page = await (await client.get("/")).get_data(as_text=True)
+
+    assert 'data-testid="no-access"' in page
+
+
+@pytest.mark.parametrize("path", ["/admin/server-status", "/admin/data"])
+async def test_the_admin_pages_are_not_served_to_somebody_signed_out(running_app, path):
+    response = await running_app.test_client().get(path)
+
+    assert response.status_code != 200
+    assert response.status_code in (302, 401, 403)
+
+
+@pytest.mark.parametrize("value", ["0", "true", "", "yes"])
+async def test_the_test_login_is_on_only_for_one(running_app, monkeypatch, value):
+    monkeypatch.setenv("SR_E2E", value)
+
+    assert (await running_app.test_client().get("/e2e/login/ada")).status_code == 404
+
+
+async def test_hsts_is_sent_on_a_real_host_and_not_on_loopback(running_app):
+    client = running_app.test_client()
+
+    real = await client.get("/", headers={"Host": "records.apache.org"})
+    loopback = await client.get("/", headers={"Host": "localhost"})
+
+    assert "max-age=" in real.headers["Strict-Transport-Security"]
+    assert "Strict-Transport-Security" not in loopback.headers
+
+
+async def test_the_session_cookie_is_sent_same_site(running_app):
+    response = await running_app.test_client().get("/e2e/login/ada?roles=secretary")
+
+    cookies = response.headers.getlist("Set-Cookie")
+    assert cookies, "the test login sets a session"
+    assert all("SameSite=Lax" in cookie for cookie in cookies)

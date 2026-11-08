@@ -129,7 +129,7 @@ if printf '%s\n' "$changed" | grep -qE '^assets/src/js/components/.*\.svelte$'; 
     fi
 fi
 
-if touches '^app/api/routes/'; then
+if touches '^app/(api/routes|admin)/'; then
     say 'app/api/routes/ - endpoints' \
         'Every mutating route carries require_role, and a test shows a role without it' \
         'refused. The queue holds personal data, so reading is role-gated too (R-1).' \
@@ -147,13 +147,13 @@ fi
 if touches '^app/db/models\.py$'; then
     say 'app/db/models.py - a new table' \
         'Add a sequential Alembic migration in app/db/migrations/versions/.' \
-        'The admin data browser lists it unasked; leave out any column holding' \
-        'personal fields (AGENTS.md, Adding tables to the DB).'
+        'Put it in BROWSABLE, with no column holding personal fields, or in' \
+        'NOT_BROWSABLE (app/admin/routes.py; AGENTS.md, Adding tables to the DB).'
 fi
 
 # What a user can now do is a claim the Documentation page makes, and it is the only
 # account of the workflow anybody reads.
-if touches '^app/(api/routes|client)/|^assets/src/js/components/'; then
+if touches '^app/(api/routes|client|admin)/|^assets/src/js/components/'; then
     say 'a control moved, was renamed, or somebody can now do something new' \
         'The Documentation page changes in the same PR: app/md/documentation/.' \
         'Say who, not just what - the page is read by people checking whether a' \

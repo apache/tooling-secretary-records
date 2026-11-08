@@ -697,6 +697,22 @@ check_gh() {
 AGENTS.md, \"Writing on an issue or a pull request\"."
 }
 
+# What a make wrapper may be given: a target and plain values. `--eval`, another makefile, a `SHELL=` or
+# `MAKEFLAGS=` of its own, or a value with `;`, `|`, `&`, `$(` or a backtick in it, runs what it likes on
+# the host in the recipe - `make container-pytest ARGS='x; uv run pytest'` is uv on the host.
+check_make_arguments() {
+    shift 2
+    for _word in "$@"; do
+        case $_word in
+            --eval* | -f | -f?* | --file* | --makefile* | SHELL=* | .SHELLFLAGS=* | MAKEFLAGS=* | *\;* | *\|* | *\&* | *\$\(* | *\`*)
+                refuse "\`make $_word\` hands the recipe a command of its own, which runs on the host." \
+                    "Give the wrapper plain values: make container-pytest ARGS='tests/test_x.py -q'"
+                ;;
+            *) : ;;
+        esac
+    done
+}
+
 check_part() {
     _stripped=$(strip_prefixes "$1")
 
@@ -737,7 +753,17 @@ check_part() {
     if [ "$#" -eq 0 ]; then
         return 0
     fi
-    case ${1##*/} in
+    # `\uv` runs uv: a backslash only stops an alias, and the command is the word after it
+    _command=${1#\\}
+    case ${_command##*/} in
+        eval)
+            refuse "\`eval\` runs a command this guard cannot read before it runs." \
+                "Write the command out: every rule here reads the words it is given."
+            ;;
+        \$*)
+            refuse "A command named by a variable (\`$1\`) is one this guard cannot read before it runs." \
+                "Write the command out: every rule here reads the words it is given."
+            ;;
         uv | uvx | yarn | npm | npx | pnpm | node | python | python3 | pytest | prek | ruff | pyright | eslint | vitest | playwright | corepack | vite)
             refuse "\`${1##*/}\` must not run on the host: AGENTS.md keeps every build, linter and test inside the dev container." \
                 "Run it there instead:
@@ -752,7 +778,7 @@ check_part() {
                 # the container wrappers AGENTS.md lists: everything container-*, and the
                 # three e2e targets - `make e2e-test`, `make e2e-quick FILTER=...`, and
                 # `make e2e-typecheck`, which runs tsc in the Playwright image
-                container-* | e2e-test | e2e-quick | e2e-typecheck) : ;;
+                container-* | e2e-test | e2e-quick | e2e-typecheck) check_make_arguments "$@" ;;
                 *)
                     refuse "\`make ${2:-}\` runs the toolchain on the host." \
                         "Use the wrapper that runs it in the container: any make container-*, and

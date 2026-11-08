@@ -2,14 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(make container-check:*)",
-      "Bash(make container-pytest:*)",
       "Bash(make container-quality:*)",
       "Bash(make container-quality-base:*)",
       "Bash(make container-test:*)",
       "Bash(make container-test-coverage:*)",
       "Bash(make container-test-py314:*)",
       "Bash(make container-verify:*)",
-      "Bash(make e2e-quick:*)",
       "Bash(make e2e-test:*)",
       "Bash(make e2e-typecheck:*)",
       "Bash(scripts/container.sh:*)",
