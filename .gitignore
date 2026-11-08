@@ -101,6 +101,8 @@ state/
 
 # e2e (Playwright) server state directory
 state-e2e/
+# make container-keep's preview: scripts/run-preview.sh
+state-preview/
 
 # ignore pem files
 *.pem

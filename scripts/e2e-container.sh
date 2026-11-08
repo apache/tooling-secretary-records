@@ -153,6 +153,7 @@ else
             --exclude=./.git \
             --exclude=./state \
             --exclude=./state-e2e \
+            --exclude=./state-preview \
             -cf - . | tar -C /run/secretary-records -xf -
         cd /run/secretary-records
 

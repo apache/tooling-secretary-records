@@ -209,8 +209,9 @@ container-shell:
 # and so that neither a person nor an agent assembles a `podman run` of its own, which is
 # how a machine came to be holding eleven of them under names nobody could attribute.
 #
-#   make container-keep                          the dev server, detached, on :8080
+#   make container-keep                          the app on the e2e fixtures, detached, on :8080
 #   make container-keep KEEP_CMD='sh -c "..."'   something else, same treatment
+#   make container-keep KEEP_PORT=127.0.0.1:18080:8080   a second one, from another worktree
 #   make container-stop                          takes it away
 #
 # The name is per checkout, because a fixed one is a container `make container-stop` in one
@@ -225,19 +226,14 @@ MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 CHECKOUT_SUFFIX := $(shell . $(MAKEFILE_DIR)/scripts/checkout-id.sh && \
 	checkout_suffix "$(MAKEFILE_DIR)")
 KEEP_NAME ?= secretary-records-keep$(CHECKOUT_SUFFIX)
-KEEP_CMD ?= scripts/run-dev.sh
-KEEP_PORT ?= 8080:8080
+KEEP_CMD ?= scripts/run-preview.sh
+# on the loopback address alone: the preview signs anybody in, as anybody, with /e2e/login
+KEEP_PORT ?= 127.0.0.1:8080:8080
 
-# config.yaml first: it is gitignored and made by hand (CONTRIBUTING.md), so a fresh
-# worktree has none - and without it the app raises on startup while run-dev.sh keeps the
-# container alive on its vite process. The container then looks healthy and serves nothing,
-# which is the shape this whole change is against.
+# The preview, scripts/run-preview.sh: the e2e fixtures, with /e2e/login/<uid>?roles=... for a session,
+# on 0.0.0.0. It needs no config.yaml - the one CONTRIBUTING.md has you make is for run-dev.sh on the
+# host, whose localhost no published port reaches from inside a container.
 container-keep:
-	@test -f config.yaml || { \
-		echo "config.yaml is missing - the app will not start without one." >&2; \
-		echo "  cp config.yaml.example config.yaml   and read CONTRIBUTING.md" >&2; \
-		exit 1; \
-	}
 	SR_DETACH=1 SR_CONTAINER_NAME=$(KEEP_NAME) SR_PORT=$(KEEP_PORT) \
 		scripts/container.sh $(KEEP_CMD)
 

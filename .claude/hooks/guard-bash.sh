@@ -24,6 +24,16 @@
 # /run/secretary-records is where both the Dockerfile and .devcontainer put the working tree, so its
 # presence is the same question as "am I already inside". SR_GUARD_FORCE=1 overrides
 # that, which is how guard-bash.test.sh exercises the guard from inside the container.
+#
+# It holds a rule against a lapse, not against somebody set on breaking it: it reads the shell
+# as far as the rules need and no further. Known to walk past it, and left so:
+#   - a redirection in front of the command word: `>out uv run pytest`
+#   - a glob or a brace that names the command: `/usr/bin/[u]v`, `{uv,} run`
+#   - a runner it does not list, or one of its options it does not know: `stdbuf`, `ionice`,
+#     `env -S`, `sudo -u`
+#   - a value exported earlier on the line or in the session: `export FILTER=...; make e2e-quick`
+# Reading make's arguments word by word costs time: a five-part line with a make wrapper in it
+# went from 34ms to 47ms.
 
 set -eu
 
@@ -144,6 +154,8 @@ command=$(
         sed -e 's/\\n/\
 /g' -e 's/\\[rt]/ /g' -e 's/\\"/"/g' -e 's/\\\\/\\/g' |
         drop_heredoc_bodies |
+        # a line ending in a backslash goes on on the next: one command, not a `\;` and a second
+        awk '{ if (sub(/\\$/, "")) printf "%s", $0; else print }' |
         tr '\n' ';'
 )
 
@@ -174,6 +186,28 @@ refuse() {
 # here can read, and a single word so that what stood beside it stays one word with it.
 SUBSTITUTED='__bat_substitution__'
 
+# $1 past its first word as a shell reads it, so that a quoted space is inside the word: the rest
+# of `FILTER='x y' make e2e-quick` is `make e2e-quick`, not `y' make e2e-quick`.
+past_first_word() {
+    _left=$1
+    _in=''
+    while [ -n "$_left" ]; do
+        _c=${_left%"${_left#?}"}
+        _left=${_left#?}
+        if [ -n "$_in" ]; then
+            [ "$_c" = "$_in" ] && _in=''
+            continue
+        fi
+        case $_c in
+            "'" | '"') _in=$_c ;;
+            \\) _left=${_left#?} ;;
+            [[:space:]]) break ;;
+            *) : ;;
+        esac
+    done
+    printf '%s' "$_left"
+}
+
 # What a part of the line actually runs, past whatever stands in front of it: leading
 # whitespace, an opening subshell or quote, `VAR=value` prefixes, and the wrappers that
 # take a command as their argument.
@@ -188,9 +222,15 @@ strip_prefixes() {
             *) : ;;
         esac
         case ${_rest%%[[:space:]]*} in
-            sudo | env | time | nohup | exec | command | *=*) : ;;
-            # `timeout 600 make test` runs make, and so does `timeout --signal=KILL 600`.
-            timeout)
+            *=*)
+                _rest=$(past_first_word "$_rest")
+                continue
+                ;;
+            sudo | env | time | nohup | exec | command | builtin) : ;;
+            # the keywords that open a command: `if make test; then`, `while`, `! make test`
+            if | then | elif | else | do | while | until | !) : ;;
+            # `timeout 600 make test` runs make, and so does `timeout --signal=KILL 600` - and `nice -n 10`.
+            timeout | nice)
                 _rest=${_rest#*[[:space:]]}
                 while :; do
                     case ${_rest%%[[:space:]]*} in
@@ -697,23 +737,205 @@ check_gh() {
 AGENTS.md, \"Writing on an issue or a pull request\"."
 }
 
-# What a make wrapper may be given: a target and plain values. `--eval`, another makefile, a `SHELL=` or
-# `MAKEFLAGS=` of its own, or a value with `;`, `|`, `&`, `$(` or a backtick in it, runs what it likes on
-# the host in the recipe - `make container-pytest ARGS='x; uv run pytest'` is uv on the host.
-check_make_arguments() {
-    shift 2
-    for _word in "$@"; do
-        case $_word in
-            --eval* | -f | -f?* | --file* | --makefile* | SHELL=* | .SHELLFLAGS=* | MAKEFLAGS=* | *\;* | *\|* | *\&* | *\$\(* | *\`*)
-                refuse "\`make $_word\` hands the recipe a command of its own, which runs on the host." \
-                    "Give the wrapper plain values: make container-pytest ARGS='tests/test_x.py -q'"
-                ;;
-            *) : ;;
-        esac
+# The words of $1 as a shell reads them, one to a line: split on whitespace outside quotes, the quotes
+# gone, a backslash outside single quotes taking the next character as it is. The words this guard
+# otherwise walks keep their quotes and split inside them, and a value cannot be checked that way:
+# `ARGS='tests/x.py -k rename -q'` is one value, and what it holds is what make is given.
+#
+# An unquoted `<` or `>` ends the word before it and is a redirection, printed as $REDIRECTED with its
+# target on the next line; a descriptor in front of it (`2>`, `&>`) is part of it. A quoted one is text:
+# `ARGS='-k ">"'` is one value. An unquoted `#` that starts a word ends the line.
+REDIRECTED='__bat_redirection__'
+shell_words() {
+    _rest=$1
+    _word=''
+    _quote=''
+    _any=no
+    _literal=no
+    while [ -n "$_rest" ]; do
+        _char=${_rest%"${_rest#?}"}
+        _rest=${_rest#?}
+        if [ "$_quote" = "'" ]; then
+            if [ "$_char" = "'" ]; then _quote=''; else _word=$_word$_char; fi
+        elif [ "$_quote" = '"' ]; then
+            if [ "$_char" = '"' ]; then
+                _quote=''
+            elif [ "$_char" = "\\" ] && [ -n "$_rest" ]; then
+                _word=$_word${_rest%"${_rest#?}"}
+                _rest=${_rest#?}
+            else
+                _word=$_word$_char
+            fi
+        else
+            case $_char in
+                [[:space:]])
+                    [ "$_any" = yes ] && printf '%s\n' "$_word"
+                    _word=''
+                    _any=no
+                    _literal=no
+                    ;;
+                '#')
+                    if [ "$_any" = no ]; then
+                        return 0
+                    fi
+                    _word=$_word$_char
+                    ;;
+                '<' | '>')
+                    case $_literal:$_word in
+                        no: | no:[0-9] | no:[0-9][0-9] | 'no:&') : ;;
+                        *) printf '%s\n' "$_word" ;;
+                    esac
+                    printf '%s\n' "$REDIRECTED"
+                    while :; do
+                        case $_rest in
+                            ['<>&|']*) _rest=${_rest#?} ;;
+                            *) break ;;
+                        esac
+                    done
+                    _word=''
+                    _any=no
+                    _literal=no
+                    ;;
+                "'" | '"') _quote=$_char; _any=yes; _literal=yes ;;
+                \\)
+                    _word=$_word${_rest%"${_rest#?}"}
+                    _rest=${_rest#?}
+                    _any=yes
+                    _literal=yes
+                    ;;
+                *) _word=$_word$_char; _any=yes ;;
+            esac
+        fi
     done
+    [ "$_any" = yes ] && printf '%s\n' "$_word"
+    return 0
+}
+
+# Why one `NAME=value` given to a make wrapper - after the target, or in front of `make` - is refused,
+# or nothing where it is not. An allowlist, because make has more ways to run what it is given than a
+# list of them can hold: a second target (`make container-check test` is the host's `make test`), any
+# flag in any abbreviation (`--ev=`, `-nf other.mk`, `-C dir`), `MAKEFILES=`, `X != cmd`, `SHELL:=`.
+# Each value is held to how its recipe uses it: ARGS goes into the recipe inside double quotes, so a
+# `"`, `$`, backtick or backslash reaches the host's shell; FILTER, KEEP_* and the rest go in bare.
+make_assignment_refusal() {
+    _name=${1%%=*}
+    _value=${1#*=}
+    case $1 in
+        *=*) : ;;
+        *) printf '%s' "\`$1\` is a target or a flag, and a make wrapper takes only its target and NAME=value" && return 0 ;;
+    esac
+    case $_name in
+        ARGS)
+            case $_value in
+                *[\"\$\`\\]*) printf '%s' "ARGS goes into the recipe in double quotes, and \`$_value\` reaches past them" ;;
+                *) : ;;
+            esac
+            ;;
+        FILTER)
+            case $_value in
+                *[!A-Za-z0-9_./\ -]*) printf '%s' "FILTER is spec names, and \`$_value\` is more" ;;
+                *) : ;;
+            esac
+            ;;
+        # the container scripts run SR_RUNTIME as a program, so it names one of the two runtimes
+        SR_RUNTIME)
+            case $_value in
+                podman | docker) : ;;
+                *) printf '%s' "SR_RUNTIME is podman or docker, and \`$_value\` is a program run on the host" ;;
+            esac
+            ;;
+        # the SR_* names the scripts read, and no others: a pattern let `SR_X$(...)` and `SR_X!` through
+        KEEP_PORT | KEEP_NAME | PYTEST_WORKERS | QUALITY_REF | \
+            SR_APT_CACHE | SR_CONTAINER_NAME | SR_DETACH | SR_E2E | SR_E2E_EXTERNAL_SERVER | SR_E2E_HOST | \
+            SR_E2E_NETWORK | SR_E2E_NODE_VOLUME | SR_E2E_SERVER | SR_E2E_URL | SR_IMAGE | SR_KEEP | \
+            SR_MEMORY | SR_NODE_INSTALL | SR_NODE_VOLUME | SR_PLAYWRIGHT_IMAGE | SR_PORT | SR_PYTHON | \
+            SR_TIMEOUT | SR_VENV_VOLUME)
+            case $_value in
+                *[!A-Za-z0-9_./:~^-]*) printf '%s' "$_name is a plain value, and \`$_value\` is more" ;;
+                *) : ;;
+            esac
+            ;;
+        KEEP_CMD)
+            # a script, or `sh -c "..."` with nothing in it that leaves the double quotes - the shape
+            # the Makefile itself gives, whose `&&` runs in the container
+            case $_value in
+                *[!A-Za-z0-9_./-]*)
+                    _inner=${_value#sh -c \"}
+                    _inner=${_inner%\"}
+                    case $_value:$_inner in
+                        sh\ -c\ \"*\":*[\"\$\`\\]*) printf '%s' "KEEP_CMD's sh -c reaches past its double quotes" ;;
+                        sh\ -c\ \"*\":*) : ;;
+                        *) printf '%s' "KEEP_CMD is a script, or sh -c \"...\", and \`$_value\` is neither" ;;
+                    esac
+                    ;;
+                *) : ;;
+            esac
+            ;;
+        *) printf '%s' "\`$_name\` is no value a make wrapper here takes" ;;
+    esac
+    return 0
+}
+
+# A make wrapper given anything but its target and the values above runs it on the host. $1 is the
+# whole part as written, so the assignments in front of `make` - which strip_prefixes reads past, and
+# which make reads as its own - are held to the same rules. What this cannot see is a variable exported
+# earlier on the line or in the session: `export FILTER=...; make e2e-quick`.
+check_make_arguments() {
+    _make_words=$(shell_words "$1")
+    _past_make=no
+    _past_target=no
+    _redirected=no
+    while IFS= read -r _word; do
+        # a redirection is the shell's, not make's, and so is the file it names
+        if [ "$_redirected" = yes ]; then
+            _redirected=no
+            continue
+        fi
+        case $_word in
+            "$REDIRECTED")
+                _redirected=yes
+                continue
+                ;;
+            # what a command printed is no value anybody has read: `ARGS="$(...)"`
+            *"$SUBSTITUTED"*) _why="\`$_word\` holds what a command prints" ;;
+            *) _why='' ;;
+        esac
+        if [ -n "$_why" ]; then
+            :
+        elif [ "$_past_make" = no ]; then
+            case $_word in
+                make | */make | gmake | */gmake) _past_make=yes ;;
+                # an assignment the shell hands make; anything else here is a runner and its
+                # options, which strip_prefixes has read past: `timeout --signal=KILL 600`
+                [A-Za-z_]*=*)
+                    case ${_word%%=*} in
+                        *[!A-Za-z0-9_]*) : ;;
+                        *) _why=$(make_assignment_refusal "$_word") ;;
+                    esac
+                    ;;
+                *) : ;;
+            esac
+        elif [ "$_past_target" = no ]; then
+            _past_target=yes
+            # check_part matched it as `container-*`, which `container-check=1` is too
+            case $_word in
+                *[!a-z0-9-]*) _why="\`$_word\` is no target name" ;;
+                *) : ;;
+            esac
+        else
+            _why=$(make_assignment_refusal "$_word")
+        fi
+        if [ -n "${_why:-}" ]; then
+            refuse "A make wrapper is given something it would run on the host: $_why." \
+                "Give it its target and plain values: make container-pytest ARGS='tests/test_x.py -q'"
+        fi
+    done <<EOF
+$_make_words
+EOF
 }
 
 check_part() {
+    _whole=$1
     _stripped=$(strip_prefixes "$1")
 
     # A shell handed a command string is running that command: `sh -c 'pytest tests'` on
@@ -753,15 +975,15 @@ check_part() {
     if [ "$#" -eq 0 ]; then
         return 0
     fi
-    # `\uv` runs uv: a backslash only stops an alias, and the command is the word after it
-    _command=${1#\\}
+    # the command as the shell runs it: `\uv`, `'uv'`, `u""v` and `"make"` are uv and make
+    _command=$(printf '%s' "$1" | tr -d "\\\\'\"")
     case ${_command##*/} in
         eval)
             refuse "\`eval\` runs a command this guard cannot read before it runs." \
                 "Write the command out: every rule here reads the words it is given."
             ;;
-        \$*)
-            refuse "A command named by a variable (\`$1\`) is one this guard cannot read before it runs." \
+        \$* | "$SUBSTITUTED"*)
+            refuse "A command named by a variable or by what another command prints (\`$_command\`) is one this guard cannot read before it runs." \
                 "Write the command out: every rule here reads the words it is given."
             ;;
         uv | uvx | yarn | npm | npx | pnpm | node | python | python3 | pytest | prek | ruff | pyright | eslint | vitest | playwright | corepack | vite)
@@ -771,14 +993,14 @@ check_part() {
   scripts/container.sh sh -c 'cd assets && yarn test'
   make container-check | make container-test | make container-quality"
             ;;
-        make)
+        make | gmake)
             # `make container-*` and `make e2e-test` are the container wrappers
             # themselves. Every other target runs the toolchain right here.
             case ${2:-} in
                 # the container wrappers AGENTS.md lists: everything container-*, and the
                 # three e2e targets - `make e2e-test`, `make e2e-quick FILTER=...`, and
                 # `make e2e-typecheck`, which runs tsc in the Playwright image
-                container-* | e2e-test | e2e-quick | e2e-typecheck) check_make_arguments "$@" ;;
+                container-* | e2e-test | e2e-quick | e2e-typecheck) check_make_arguments "$_whole" ;;
                 *)
                     refuse "\`make ${2:-}\` runs the toolchain on the host." \
                         "Use the wrapper that runs it in the container: any make container-*, and
@@ -902,12 +1124,20 @@ split_on_separators() {
         else
             case $_char in
                 "'" | '"') _quote=$_char ;;
+                # `2>&1`, `>&2` and `&>` are redirections, not the end of a command: split
+                # there, `make container-check 2>&1 test` left `test` a command of its own
+                '&')
+                    case ${_out#"${_out%?}"}${_rest%"${_rest#?}"} in
+                        '<'* | '>'* | *'>') : ;;
+                        *) _char=$_newline ;;
+                    esac
+                    ;;
                 # `(` and `)` group commands, so they end one as surely as `;` does. Left in
                 # place they welded the bracket onto the word beside it: `(git add -A)` was
                 # one command whose first word was `(git`, which is not `git`, so the staging
                 # rule never looked at it - and `(... && make e2e-typecheck)` was refused,
                 # because `e2e-typecheck)` is not a target this repository has.
-                ';' | '|' | '&' | '(' | ')') _char=$_newline ;;
+                ';' | '|' | '(' | ')') _char=$_newline ;;
                 *) : ;;
             esac
         fi
@@ -928,7 +1158,7 @@ split_on_separators() {
 # how half of every shell session is written, and a rule nobody can follow is switched off.
 is_status_carrying_wrapper() {
     case $1 in
-        make)
+        make | gmake)
             case $2 in
                 container-* | e2e-*) return 0 ;;
                 *) return 1 ;;

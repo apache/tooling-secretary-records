@@ -72,7 +72,7 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   | `make e2e-quick FILTER=...` | one spec, reusing the app container (`SR_KEEP=1`) |
   | `make e2e-typecheck` | `tsc` over the specs, in seconds - running them checks nothing |
   | `make container-shell` | an interactive shell |
-  | `make container-keep` | the app, detached on :8080, for looking at by hand |
+  | `make container-keep` | the app on the e2e fixtures, detached on :8080, for looking at by hand: sign in at `/e2e/login/<uid>?roles=...` |
   | `make container-stop` | takes that one away again |
 
   The `container-*` rows go through `scripts/container.sh`, which gives each one a name, a

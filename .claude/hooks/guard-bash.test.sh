@@ -104,21 +104,101 @@ refuse "scripts/container.sh make test && yarn test"
 allow 'make e2e-quick FILTER=presentation'
 allow 'make e2e-quick'
 
-# a wrapper handed a command of its own runs it on the host, in the recipe
-refuse "make e2e-quick FILTER='home; uv run pytest'"
-refuse "make container-pytest ARGS='\"; uv run pytest; echo \"'"
-refuse "make container-check --dry-run --eval='X := \$(shell touch x)'"
-refuse 'make container-check -f other.mk'
+# A make wrapper takes its target and NAME=value, and nothing else: each of these ran its payload on
+# the host when the rule was a list of things to refuse.
+# a second target is the host's own
+refuse 'make container-check test'
+refuse 'make e2e-quick e2e-test-host'
+# a flag, in any spelling make accepts
+refuse "make container-check --eval='X:=1'"
+refuse "make container-check --ev='X:=1'"
+refuse 'make container-check -nf other.mk'
+refuse 'make container-check -fother.mk'
+refuse 'make container-check --file=other.mk'
+refuse 'make container-check -C /tmp/planted'
+refuse 'make container-check -I /tmp/planted'
+# a value make itself reads, or one assigned another way
+refuse 'make container-check MAKEFILES=/tmp/planted.mk'
+refuse 'make container-check MAKEFLAGS=--eval=x'
 refuse 'make container-check SHELL=/tmp/x'
-refuse "make container-test ARGS='-q | tee out'"
-# and plain values, quoted, still pass
-allow "make container-pytest ARGS='tests/test_access.py -k \"e2e or admin\" -q'"
+refuse 'make container-check SHELL:=/tmp/x'
+refuse "make container-check X!='touch f'"
+# a value that reaches past how its recipe uses it - ARGS is in double quotes there, the others bare
+refuse "make container-pytest ARGS='\"; uv run pytest; echo \"'"
+refuse "make container-pytest ARGS='\$(touch x)'"
+refuse "make container-pytest ARGS='\${shell touch x}'"
+refuse "make container-pytest ARGS='\`touch x\`'"
+refuse "make e2e-quick FILTER='home; uv run pytest'"
+refuse "make e2e-quick FILTER='home & uv run pytest'"
+refuse "make e2e-quick FILTER='\${shell touch x}'"
+refuse "make container-keep KEEP_PORT='18081:8080 uv run pytest'"
+refuse "make container-keep KEEP_NAME='x;touch f'"
+refuse "make container-keep KEEP_CMD='uv run pytest; sh'"
+refuse "make container-keep KEEP_CMD='sh -c \"\$(touch x)\"'"
+# the same values in front of make, which make reads as its own
+refuse "FILTER='x;touch f' make e2e-quick"
+# a quoted value with a space in it is one word, and what runs is past it
+refuse "X='a b' uv run pytest"
+refuse "FILTER='a b' make test"
+refuse 'env MAKEFLAGS=--eval=x make container-check'
+# make reached another way
+refuse "nice make container-check --eval='X:=1'"
+refuse "\"make\" container-check --eval='X:=1'"
+# and what the docs give still passes: plain values, quoted, and the Makefile's own KEEP_CMD shape
+allow "make container-pytest ARGS='tests/test_access.py -k rename -q'"
 allow 'make container-pytest ARGS=tests/test_access.py'
+allow "make container-test ARGS='-q | tee out'"
+allow "make container-keep KEEP_PORT=127.0.0.1:18080:8080"
+allow "make container-keep KEEP_CMD='sh -c \"cd assets && yarn dev\"'"
+allow 'make container-keep KEEP_CMD=scripts/run-preview.sh'
+allow 'SR_KEEP=1 make e2e-quick FILTER=presentation'
+# SR_RUNTIME is run as a program, and only the SR_* names the scripts read are values at all
+refuse 'make container-check SR_RUNTIME=/tmp/planted'
+refuse 'SR_RUNTIME=./x make container-check'
+refuse "make container-check 'SR_X\$(touch f)=1'"
+refuse 'make container-check SR_X!=id'
+refuse 'make container-check SR_KEEP:=1'
+allow 'make container-test SR_RUNTIME=docker'
+allow 'SR_MEMORY=0 make container-verify'
+# the target itself, which check_part matched as `container-*`
+refuse "make container-check=1"
+refuse "make container-x!='touch f'"
+# what a command prints, inside the quotes where a value is otherwise read
+refuse 'make container-pytest ARGS="$(cat args)"'
+# a redirection's `&` does not end the command, so what follows it is still make's
+refuse 'make container-check 2>&1 test'
+refuse 'make container-check >&2 test'
+refuse 'make container-check &>/tmp/c.log test'
+allow 'make container-check >/tmp/c.log 2>&1'
+allow 'make container-check 2>/tmp/c.log'
+# a quoted `>` is text, not a redirection whose file the rule skips
+refuse "make container-check '>' test"
+refuse 'make container-check \> test'
+allow "make container-pytest ARGS='-k a>b'"
+# make found by its path, under its other name, or behind a shell keyword
+refuse '/usr/bin/make container-check test'
+refuse 'gmake container-check test'
+refuse 'gmake test'
+refuse 'if make test; then echo ok; fi'
+refuse 'while make test; do :; done'
+refuse '! make test'
+# ...and what the docs write still passes: a trailing comment, a continued line, a runner's options
+allow 'make container-quality-base    # once per pull; re-run after rebasing'
+allow 'make container-check  # the pre-commit hooks'
+allow "make container-pytest \\
+  ARGS='tests/test_access.py -q'"
+allow 'timeout --signal=KILL 600 make container-check'
+allow 'nice -n 10 make container-test'
 
-# a command the guard cannot read before it runs
+# a command the guard cannot read before it runs, or one spelled round the rules
 refuse '\uv run pytest'
+refuse "'uv' run pytest"
+refuse 'u""v run pytest'
+refuse '\u\v run pytest'
 refuse "eval 'uv run pytest'"
+refuse "builtin eval 'uv run pytest'"
 refuse 'x=uv; $x run pytest'
+refuse '$(echo uv) run pytest'
 allow 'make container-check'
 allow 'make container-test'
 allow 'make container-quality-update'

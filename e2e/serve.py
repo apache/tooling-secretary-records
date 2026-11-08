@@ -72,4 +72,5 @@ def main(config_path: str = "e2e/e2e-config.yaml") -> None:
 
 
 if __name__ == "__main__":
-    main()
+    # a config of its own, as scripts/run-preview.sh gives one
+    main(*sys.argv[1:2])
