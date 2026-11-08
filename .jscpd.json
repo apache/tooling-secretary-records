@@ -1,0 +1,13 @@
+{
+  "$schema": "https://raw.githubusercontent.com/kucherenko/jscpd/master/packages/jscpd/schema.json",
+  "path": ["app", "assets/src", "scripts"],
+  "format": ["python", "typescript", "javascript", "svelte"],
+  "ignore": [
+    "**/node_modules/**",
+    "**/db/migrations/**"
+  ],
+  "minLines": 15,
+  "minTokens": 75,
+  "absolute": false,
+  "gitignore": true
+}

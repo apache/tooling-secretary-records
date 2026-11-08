@@ -1,0 +1,20 @@
+services:
+  secretary-records:
+    image: secretary-records
+    build: .
+    hostname: secretary-records
+    command: /bin/sh /mnt/scripts/start.sh
+    volumes:
+    - .:/mnt:ro
+    - secretary-records-venv:/run/secretary-records/.venv
+    - secretary-records-node:/run/secretary-records/assets/node_modules
+    - secretary-records-cert:/run/cert
+    ports:
+      - "4500:4500"
+      - "443:443"
+
+# Cache for .venv, assets/node_modules and SSL cert
+volumes:
+  secretary-records-venv:
+  secretary-records-node:
+  secretary-records-cert:

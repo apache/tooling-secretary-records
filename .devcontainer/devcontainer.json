@@ -1,0 +1,55 @@
+{
+  "name": "Secretary Records",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "workspaceMount": "source=${localWorkspaceFolder},target=/run/secretary-records,type=bind",
+  "workspaceFolder": "/run/secretary-records",
+  "remoteUser": "root",
+  "forwardPorts": [4500, 443],
+  "portsAttributes": {
+    "443": {
+      "protocol": "https",
+      "label": "Secretary Records (sign in here)",
+      "onAutoForward": "notify"
+    },
+    "4500": {
+      "protocol": "https",
+      "label": "Secretary Records",
+      "onAutoForward": "notify"
+    }
+  },
+  "overrideCommand": true,
+  "initializeCommand": "test -f .env || touch .env",
+  "runArgs": ["--env-file", "${localWorkspaceFolder}/.env"],
+  "postCreateCommand": "sh .devcontainer/postCreate.sh",
+  "mounts": [
+    "source=secretary-records-venv,target=/run/secretary-records/.venv,type=volume",
+    "source=secretary-records-node,target=/run/secretary-records/assets/node_modules,type=volume",
+    "source=secretary-records-cert,target=/run/cert,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "svelte.svelte-vscode",
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/run/secretary-records/.venv/bin/python",
+        "python.analysis.typeCheckingMode": "standard",
+        "[python]": {
+          "editor.defaultFormatter": "charliermarsh.ruff",
+          "editor.formatOnSave": true
+        },
+        "[svelte]": {
+          "editor.defaultFormatter": "svelte.svelte-vscode",
+          "editor.formatOnSave": true
+        }
+      }
+    }
+  }
+}

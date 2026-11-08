@@ -1,0 +1,261 @@
+# REQUIREMENTS.md and WORKBENCH.md are the requirements as agreed with the Secretary, and are
+# changed by agreement rather than by a formatter.
+exclude: '^(app/client/static/vendor)|migrations|^(REQUIREMENTS|WORKBENCH)\.md$'
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+    - id: check-toml
+    - id: check-yaml
+    - id: end-of-file-fixer
+    - id: mixed-line-ending
+    - id: trailing-whitespace
+    # PEM and SSH key material, wherever it is pasted
+    - id: detect-private-key
+- repo: https://github.com/Lucas-C/pre-commit-hooks
+  rev: v1.5.6
+  hooks:
+    - id: insert-license
+      name: Add license for all Python files
+      files: ^((app|tests)/(.*\.py$|.*\.pyi)|server.py)$
+      args:
+        - --comment-style
+        - "|#|"
+        - --license-filepath
+        - scripts/ci/LICENSE-template.txt
+        - --fuzzy-match-generates-todo
+- repo: https://github.com/DavidAnson/markdownlint-cli2
+  rev: v0.20.0
+  hooks:
+    - id: markdownlint-cli2
+      exclude: ^tests/
+- repo: https://github.com/shellcheck-py/shellcheck-py
+  rev: v0.11.0.1
+  hooks:
+  -   id: shellcheck
+      # shellcheck keeps its sharper checks behind --enable. These four are the ones that
+      # catch a bug rather than state a preference: an unquoted expansion that word-splits
+      # on a path with a space, a `case` that silently does nothing for an unexpected
+      # value, `which` instead of `command -v`, and `[ -n $x ]` written without quotes.
+      # The remaining optional checks are stylistic (require-variable-braces and friends)
+      # and would report on every script here without making one of them safer.
+      # -x: a hook run scoped to only the staged files (the git commit hook, unlike
+      # `make check`'s --all-files) does not hand shellcheck the sibling scripts
+      # container.sh and e2e-container.sh source with `.`, so without this it reports
+      # SC1091 on both of them whenever a commit touches one without the other.
+      args:
+        - --enable=quote-safe-variables,add-default-case,deprecate-which,avoid-nullary-conditions
+        - -x
+- repo: https://github.com/Riverside-Healthcare/djLint
+  rev: v1.36.4
+  hooks:
+    - id: djlint
+      files: "app/client/templates/.*\\.html$"
+      types_or: ['html']
+      args:
+        - --profile=jinja
+        - --lint
+    - id: djlint
+      name: Format HTML templates
+      files: "app/client/templates/.*\\.html$"
+      types_or: ['html']
+      args:
+        - --profile=jinja
+        - --reformat
+- repo: https://github.com/thibaudcolas/pre-commit-stylelint
+  rev: v16.26.1
+  hooks:
+    - id: stylelint
+      additional_dependencies: ['stylelint@16.14.1', 'stylelint-config-standard@37.0.0']
+      files: "assets/src/css/.*\\.css$"
+      types_or: ['css']
+      args: ['--fix']
+- repo: https://github.com/woodruffw/zizmor-pre-commit
+  rev: v1.22.0
+  hooks:
+    - id: zizmor
+      args: [ --min-severity, low ]
+- repo: https://github.com/astral-sh/uv-pre-commit
+  rev: 0.9.26
+  hooks:
+    - id: uv-lock
+    - id: uv-export
+      args: [ --frozen, --output-file, requirements.txt, --no-default-groups, --quiet ]
+- repo: local
+  hooks:
+    - id: forbid-secure-context-only-apis
+      name: Forbid secure-context-only browser APIs
+      # crypto.randomUUID is undefined outside a secure context, so it throws when the
+      # dev server is reached over plain http on anything but localhost, taking the
+      # whole feature down with it. utils.uniqueId() wraps it with a fallback.
+      entry: 'crypto\.randomUUID'
+      language: pygrep
+      files: '^assets/src/.*\.(ts|svelte)$'
+      # utils.ts implements the wrapper; its test exercises the raw API on purpose
+      exclude: '^assets/src/js/libs/utils(\.test)?\.ts$'
+    - id: forbid-env-files
+      name: Forbid committing a .env file
+      # A .env holds the LDAP bind credentials this instance authenticates with, so it
+      # must never reach a commit. .gitignore covers .env*, which stops it being picked
+      # up by a wildcard add; this catches the two ways past that - `git add -f`, and a
+      # file that was already staged before the ignore rule existed. There is no tracked
+      # .env template, so the pattern needs no exception.
+      entry: >-
+        a .env holds credentials and must not be committed. Keep it untracked (it is in
+        .gitignore); if you need a template, add one under a name that is not .env*.
+      language: fail
+      files: '(^|/)\.env($|[.-])'
+    - id: forbid-double-type-assertion
+      name: Forbid a type assertion that erases the check
+      # `x as unknown as T` and `x as any` assert past the type system rather than
+      # narrowing within it, and no amount of type-checking catches either - which is why
+      # `LABEL as unknown as Array<'fontSize'>` reached BAT's main on #729 and had to be found
+      # by a reviewer. It told the compiler that six property names were all `fontSize`,
+      # so a misspelt one would have compiled, read `undefined`, compared equal to the
+      # other `undefined`, and passed while measuring nothing.
+      #
+      # There were none in the tree when this was added, so keeping it that way costs
+      # nothing. Write the type, or narrow with something that can fail.
+      #
+      # `as any` has to end an expression to count, or the rule reads prose and fires on a
+      # comment in BAT's RecurringItemFormModal.svelte - "the same 78-character column limit as
+      # any other agenda text" - which is how a rule nobody can work under gets switched
+      # off, taking the half that catches something with it.
+      entry: '\bas\s+unknown\s+as\b|\bas\s+any\s*($|[;,)\]}])'
+      language: pygrep
+      files: '^(assets/src|e2e)/.*\.(ts|svelte)$'
+    - id: guard-bash
+      name: The Bash guard refuses what it says it refuses
+      # .claude/hooks/guard-bash.sh holds several of the rules in AGENTS.md at the point a
+      # tool call would break one; its own header lists which. Its allowed cases are the
+      # half that matters: a guard that refuses something this repository asks for gets
+      # discovered mid-task and switched off, taking every other rule it holds with it.
+      entry: .claude/hooks/guard-bash.test.sh
+      language: system
+      pass_filenames: false
+      files: '^\.claude/hooks/'
+    - id: pr-review-verdict
+      name: The review reader counts what it says it counts
+      # scripts/pr-review.sh's last line is the one a reader acts on, and every way it has
+      # been wrong has been a way of calling a branch clean that nothing had read. The
+      # cases hold the three known ones, so a fourth has to be argued for rather than
+      # arrived at.
+      entry: scripts/pr-review.test.sh
+      language: system
+      pass_filenames: false
+      files: '^scripts/pr-review'
+    - id: apt-mirror
+      name: The mirror rewrite moves the archive and nothing else
+      # scripts/ci/apt-mirror.sh edits the file every job installs from, before any of them
+      # has installed anything. A rewrite that catches one host too many points a runner at
+      # an archive that is not there, or drops it off the security updates - and either shows
+      # up as every job failing several minutes in, on a change that touched no code.
+      entry: scripts/ci/apt-mirror.test.sh
+      language: system
+      pass_filenames: false
+      files: '^scripts/ci/apt-'
+    - id: container-limits
+      name: The dev container is named, capped and given a deadline
+      # scripts/container.sh asks the runtime for four things no command of its own needs -
+      # a name, a memory cap, a deadline and a removal on a signal - and each of them is
+      # invisible in ordinary use, which is how they would come to be dropped by an edit
+      # that looked harmless. It asserts the argv the runtime is given, and the shape of
+      # the script inside - not that the deadline fires, which needs a container and this
+      # runs inside one. docs/troubleshooting.md says what their absence cost.
+      entry: scripts/container.test.sh
+      language: system
+      pass_filenames: false
+      files: '^scripts/container'
+    - id: worktree-cleanup
+      name: Finishing a worktree takes its own volumes and nothing of anyone else's
+      # scripts/worktree-done.sh and scripts/container-gc.sh remove volumes, containers and
+      # networks. What they must leave alone matters more than what they take: a live
+      # checkout's, the primary's, a name that only looks like ours, a worktree with work in it.
+      entry: scripts/worktree-cleanup.test.sh
+      language: system
+      pass_filenames: false
+      files: '^scripts/(worktree-done|container-gc|checkout-resources|checkout-id|seed-volumes|worktree-cleanup)'
+    - id: pr-preflight-scan
+      name: The preflight scan says none only when it looked
+      # scripts/pr-preflight.sh answers `none` to who else is in these files, which a
+      # session reads as leave to restructure them. Every way it has been wrong has been a
+      # way of printing `none` without having looked: a pathspec resolved against the wrong
+      # directory, a ref with no merge base, a git call whose error went to /dev/null.
+      entry: scripts/pr-preflight.test.sh
+      language: system
+      pass_filenames: false
+      files: '^scripts/pr-preflight'
+    - id: ensure-node-modules
+      name: node_modules is provisioned from the lockfile, not from having one
+      # scripts/ensure-node-modules.sh decides whether this checkout's node_modules
+      # volume matches what it pins. The check it replaces asked only whether an
+      # install had ever happened, which is true of a volume seeded from another
+      # checkout - so a branch pinning something new never installed it, and said so
+      # as a type error naming a module several layers down.
+      entry: scripts/ensure-node-modules.test.sh
+      language: system
+      pass_filenames: false
+      # The entry points are in the pattern because one of the cases is that they still
+      # call it, and a hook that runs only when the script itself changes would not see a
+      # call being deleted from either of them.
+      files: '^scripts/(ensure-node-modules|container\.sh|e2e-container\.sh)'
+    - id: ruff
+      name: Ruff Linter
+      entry: uv run ruff check --fix
+      language: system
+      types: [python]
+    - id: ruff-format
+      name: Ruff Formatter
+      entry: uv run ruff format --force-exclude
+      language: system
+      types: [python]
+    - id: pyright
+      name: Pyright Type Check
+      entry: uv run pyright
+      language: system
+      require_serial: true
+      types: [python]
+      exclude: ^tests/
+    - id: yarn-format
+      name: yarn format:check (prettier)
+      # Split from yarn-lint below: this half is as fast as the hooks around it, so it
+      # stays at the default commit stage. Assumes the install is already current, like
+      # pyright above - `make init`/`make build` and this container's own setup are what
+      # keep node_modules in sync, not this hook.
+      entry: yarn --cwd assets format:check
+      language: system
+      pass_filenames: false
+      files: '^assets/src/.*\.(css|js|svelte)$'
+    # The suites are too slow to run on every commit, but not on every push. These
+    # run in the dev container, so they need no host toolchain; enable them with
+    # `prek install --hook-type pre-push`.
+    - id: yarn-lint
+      name: yarn lint (svelte-check, eslint)
+      # The slow half of what used to be one hook: svelte-check checks the whole project
+      # rather than per-file, like pyright above, and is what makes this too slow for
+      # every commit next to the near-instant hooks around it - unlike prettier, split
+      # out above. Assumes the install is already current, for the same reason pyright
+      # does not run one either.
+      entry: yarn --cwd assets lint
+      language: system
+      stages: [pre-push]
+      pass_filenames: false
+      always_run: true
+      # eslint's complexity warnings are deliberately not failures (see the quality
+      # ratchet), so a passing run still has something worth reading - without this,
+      # prek only prints a hook's output when it fails, and they would go unseen.
+      verbose: true
+    - id: container-test
+      name: Run the test suites in the dev container
+      entry: scripts/container.sh make test
+      language: system
+      stages: [pre-push]
+      pass_filenames: false
+      always_run: true
+    - id: e2e-test
+      name: Run the end-to-end suite in containers
+      entry: scripts/e2e-container.sh
+      language: system
+      stages: [pre-push]
+      pass_filenames: false
+      always_run: true
