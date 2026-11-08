@@ -1,0 +1,62 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+---
+name: Install apt packages
+description: >
+  The three or four system packages a job needs, from a cache where there is one and from
+  whichever Ubuntu mirror is answering where there is not. No job uses it yet: it is here
+  for the subversion, LDAP and OCR packages the features in REQUIREMENTS.md will need.
+
+inputs:
+  packages:
+    description: The packages to install, space separated.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # What the cache is keyed on, and so what makes it stale. The runner image and the
+    # package list are the two things that decide what is in it, and the week is what
+    # decides how old the newest of it can be: each week's first run fetches, and every
+    # run after it is answered off the cache. A pinned image and a list of four packages
+    # would otherwise hold a cache for as long as the runner definition did not change,
+    # which is a long time to go without a security update, even on a machine that is
+    # thrown away at the end of the job.
+    - id: key
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        release=$(. /etc/os-release && echo "$VERSION_ID")
+        packages=$(echo "$PACKAGES" | tr ' ' '-')
+        echo "value=apt-$release-$(date -u +%G-W%V)-$packages" >> "$GITHUB_OUTPUT"
+
+    - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/secretary-records-apt
+        key: ${{ steps.key.outputs.value }}
+
+    - shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        # `$HOME` here rather than in `env:` above, where the value would be the literal
+        # string and the cache would be a directory called `~`. The path given to
+        # actions/cache is its own to expand, and it does.
+        export SR_APT_CACHE="$HOME/.cache/secretary-records-apt"
+        # shellcheck disable=SC2086  # a list of packages, deliberately unquoted
+        scripts/ci/apt-install.sh $PACKAGES
