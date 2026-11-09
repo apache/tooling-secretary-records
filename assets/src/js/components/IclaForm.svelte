@@ -88,6 +88,32 @@
     errors = rule[1]().trim() === '' ? { ...rest, [key]: rule[2] } : rest;
   };
 
+  // the fields the form says an error beside; anything else the server says is said at the top
+  const BESIDE = new Set([
+    'fullName',
+    'publicName',
+    'email',
+    'postalAddress',
+    'country',
+    'apacheIds',
+    'notifyProject',
+    'signing',
+    'typedSignature',
+    'agreed',
+    'pdf',
+    'signature'
+  ]);
+
+  const shown = (said: Errors): Errors => {
+    const elsewhere = Object.entries(said).filter(([key]) => key !== 'form' && !BESIDE.has(key));
+    if (elsewhere.length === 0) {
+      return said;
+    }
+    const kept = Object.fromEntries(Object.entries(said).filter(([key]) => key === 'form' || BESIDE.has(key)));
+    const form = [said.form, ...elsewhere.map(([, message]) => message)].filter(Boolean).join(' ');
+    return { ...kept, form };
+  };
+
   const download = async () => {
     const wanted = missing();
     if (Object.keys(wanted).length > 0) {
@@ -96,7 +122,7 @@
     }
     const response = await api.document(fields());
     if (!response.ok) {
-      errors = await errorsOf(response);
+      errors = shown(await errorsOf(response));
       return;
     }
     errors = {};
@@ -147,7 +173,7 @@
         sent = ((await response.json()) as { mailed: boolean }).mailed;
         errors = {};
       } else {
-        errors = await errorsOf(response);
+        errors = shown(await errorsOf(response));
       }
     } catch (e) {
       errors = { form: `The form could not be sent: ${e}. Try again.` };
@@ -169,11 +195,20 @@
 
 {#if sent !== undefined}
   <div class="sr-measure sr-sent" role="status" id="icla-sent">
-    <h2>ICLA sent</h2>
-    <p>
-      The Secretary has your ICLA. Once it is filed, the project you named is told, and an account can be asked for you.
-      There is nothing more you need to do now.
-    </p>
+    {#if sent}
+      <h2>ICLA sent</h2>
+      <p>
+        The Secretary has your ICLA. Once it is filed, the project you named is told, and an account can be asked for
+        you. There is nothing more you need to do now.
+      </p>
+    {:else}
+      <h2>ICLA received, not yet sent on</h2>
+      <p>
+        Your ICLA is kept here, but it could not be mailed to the Secretary just now. So that it reaches them, also
+        email the signed ICLA to <a href="mailto:secretary@apache.org">secretary@apache.org</a>
+        .
+      </p>
+    {/if}
   </div>
 {:else}
   <form class="sr-form sr-measure" novalidate onsubmit={submit}>

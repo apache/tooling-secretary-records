@@ -66,6 +66,8 @@ class IclaSubmission(DBBase, table=True):
     remote_address: str | None = None
     """For a typed signature: the address it was given from, which is part of the record of it."""
     files: str = ""
-    """The names of the files kept for it, comma-separated, under `<state>/icla/<id>/`."""
+    """The names of the files kept for it, comma-separated, under `<state>/icla/<folder>/`."""
+    folder: str = ""
+    """A random name, not the row's id: SQLite gives an id again after the newest row is deleted."""
     mailed: bool = False
     """Whether the mail to the Secretary was handed to the relay."""

@@ -30,7 +30,7 @@ APACHE_ID: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9]{2,19}$")
 """A preferred Apache id: lowercase letters and digits, beginning with a letter (F-100). Whether it is
 free is the Secretary's to check when the ICLA is filed (F-113 is not built yet)."""
 
-EMAIL: Final[re.Pattern[str]] = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
+EMAIL: Final[re.Pattern[str]] = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$")
 """One address: the ICLA names one, and an account is created for one."""
 
 MAX_IDS: Final[int] = 3
@@ -46,7 +46,7 @@ class Signing(enum.StrEnum):
     """The filled ICLA and a detached PGP signature of it, uploaded."""
 
 
-def _text(value: str, field: str, limit: int, *, lines: int = 1) -> str:
+def text(value: str, field: str, limit: int, *, lines: int = 1) -> str:
     value = "\n".join(line.strip() for line in value.strip().splitlines())
     if len(value) > limit:
         raise ValueError(f"{field} is longer than {limit} characters")
@@ -81,7 +81,7 @@ class IclaFields(pydantic.BaseModel):
     @pydantic.field_validator("full_name")
     @classmethod
     def _full_name(cls, value: str) -> str:
-        value = _text(value, "Full name", 200)
+        value = text(value, "Full name", 200)
         if not value:
             raise ValueError("Full name is required")
         return value
@@ -89,12 +89,12 @@ class IclaFields(pydantic.BaseModel):
     @pydantic.field_validator("public_name")
     @classmethod
     def _public_name(cls, value: str) -> str:
-        return _text(value, "Public name", 200)
+        return text(value, "Public name", 200)
 
     @pydantic.field_validator("postal_address")
     @classmethod
     def _postal_address(cls, value: str) -> str:
-        value = _text(value, "Postal address", 400, lines=6)
+        value = text(value, "Postal address", 400, lines=6)
         if not value:
             raise ValueError("Postal address is required")
         return value
@@ -102,7 +102,7 @@ class IclaFields(pydantic.BaseModel):
     @pydantic.field_validator("country")
     @classmethod
     def _country(cls, value: str) -> str:
-        value = _text(value, "Country", 100)
+        value = text(value, "Country", 100)
         if not value:
             raise ValueError("Country is required")
         return value
@@ -110,8 +110,8 @@ class IclaFields(pydantic.BaseModel):
     @pydantic.field_validator("email")
     @classmethod
     def _email(cls, value: str) -> str:
-        value = value.strip()
-        if not EMAIL.match(value) or len(value) > 254:
+        value = text(value, "Email", 254)
+        if not EMAIL.match(value):
             raise ValueError("Email is one address, written like name@example.org")
         return value
 
@@ -127,10 +127,15 @@ class IclaFields(pydantic.BaseModel):
             )
         return list(dict.fromkeys(ids))
 
-    @pydantic.field_validator("notify_project", "invitation")
+    @pydantic.field_validator("notify_project")
     @classmethod
-    def _short(cls, value: str) -> str:
-        return _text(value, "Project", 100)
+    def _project(cls, value: str) -> str:
+        return text(value, "Project", 100)
+
+    @pydantic.field_validator("invitation")
+    @classmethod
+    def _invitation(cls, value: str) -> str:
+        return text(value, "The invitation", 100)
 
     @property
     def shown_name(self) -> str:

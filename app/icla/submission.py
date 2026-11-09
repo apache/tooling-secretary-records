@@ -25,14 +25,18 @@ import datetime
 import logging
 import os
 import re
+import secrets
+import shutil
 from email.message import EmailMessage
 from typing import TYPE_CHECKING, Final
 
 from app import config, db, mail
 from app.icla import document
-from app.icla.fields import Signing
+from app.icla.fields import Signing, text
 
 if TYPE_CHECKING:
+    import pathlib
+
     from app.icla.fields import IclaFields
 
 _LOGGER: Final[logging.Logger] = logging.getLogger(__name__)
@@ -65,8 +69,12 @@ def refusals(fields: IclaFields, signed: Signed) -> dict[str, str]:
     """What is wrong with the signature, by the form's field, or nothing."""
     found: dict[str, str] = {}
     if signed.signing == Signing.TYPED:
-        if not _same_name(signed.typed_name, fields.full_name):
-            found["typed_signature"] = "Type your full name exactly as you wrote it above"
+        try:
+            typed = text(signed.typed_name, "Your full name, to sign", 200)
+        except ValueError as ex:
+            return {"typedSignature": str(ex)}
+        if not _same_name(typed, fields.full_name):
+            found["typedSignature"] = "Type your full name exactly as you wrote it above"
         if not signed.agreed:
             found["agreed"] = "Agree to the terms of the ICLA to sign it"
         return found
@@ -133,6 +141,29 @@ def _message(row: db.IclaSubmission, signed: Signed, files: dict[str, bytes]) ->
     return email
 
 
+def _root() -> pathlib.Path:
+    return config.get().base.state_dir_path / "icla"
+
+
+def _write(files: dict[str, bytes]) -> str:
+    """The files, written into a folder of their own, and its name: a random one rather than the row's
+    id, which SQLite gives again to a row added after the newest was deleted, or to a rebuilt database
+    beside a state directory that kept its folders."""
+    folder = secrets.token_hex(16)
+    path = _root() / folder
+    _root().mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.mkdir(mode=0o700)
+    try:
+        for name, content in files.items():
+            descriptor = os.open(path / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(descriptor, "wb") as out:
+                out.write(content)
+    except OSError:
+        shutil.rmtree(path, ignore_errors=True)
+        raise
+    return folder
+
+
 async def receive(fields: IclaFields, signed: Signed, today: datetime.date | None = None) -> db.IclaSubmission:
     """Keep the submission and its files, then mail it to the Secretary. Call it only where `refusals` found
     nothing. The row says whether the mail was sent."""
@@ -151,17 +182,17 @@ async def receive(fields: IclaFields, signed: Signed, today: datetime.date | Non
         typed_signature=signed.typed_name.strip() if signed.signing == Signing.TYPED else None,
         remote_address=signed.remote_address if signed.signing == Signing.TYPED else None,
         files=",".join(files),
+        folder=_write(files),
     )
-    async with db.session() as session:
-        session.add(row)
-        await session.commit()
-        await session.refresh(row)
-    folder = config.get().base.state_dir_path / "icla" / str(row.id)
-    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
-    for name, content in files.items():
-        descriptor = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "wb") as out:
-            out.write(content)
+    try:
+        async with db.session() as session:
+            session.add(row)
+            await session.commit()
+            await session.refresh(row)
+    except Exception:
+        # a folder no row names is nobody's to find: gone with the row that would have named it
+        shutil.rmtree(_root() / row.folder, ignore_errors=True)
+        raise
     try:
         row.mailed = await mail.send(_message(row, signed, files))
     except Exception:

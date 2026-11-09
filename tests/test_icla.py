@@ -162,7 +162,7 @@ async def test_a_typed_signature_is_kept_with_when_and_where_and_mailed_with_the
     [row] = await _kept()
     assert (row.signing, row.typed_signature, row.mailed) == ("typed", "ada  lovelace", True)
     assert row.remote_address is not None
-    folder = config.get().base.state_dir_path / "icla" / str(row.id)
+    folder = config.get().base.state_dir_path / "icla" / row.folder
     assert (folder / "icla.pdf").read_bytes().startswith(b"%PDF-")
     [email] = mailed
     assert (email["To"], email["Reply-To"], email["Subject"]) == (
@@ -197,7 +197,7 @@ async def test_a_signed_pdf_is_kept_and_mailed_as_uploaded(running_app, mailed) 
 
     assert response.status_code == 201
     [row] = await _kept()
-    assert (config.get().base.state_dir_path / "icla" / str(row.id) / "icla-signed.pdf").read_bytes() == PDF
+    assert (config.get().base.state_dir_path / "icla" / row.folder / "icla-signed.pdf").read_bytes() == PDF
     assert [part.get_filename() for part in mailed[0].iter_attachments()] == ["icla-signed.pdf"]
 
 
@@ -288,3 +288,116 @@ async def test_a_submission_is_not_in_the_admin_data_browser(authenticated_clien
     admin = await authenticated_client("tooler", roles="admin")
 
     assert (await admin.get("/admin/data/iclasubmission")).status_code == 404
+
+
+# --- the review pass ---------------------------------------------------------------------------------------
+
+SIGNED = {"typed_signature": "Ada Lovelace", "agreed": "true"}
+
+
+async def test_behind_the_proxy_each_address_it_forwards_has_an_hour_of_its_own(
+    running_app, mailed, monkeypatch
+) -> None:
+    """Behind the Infra proxy every connection is the proxy's: counted by it, one submitter would use up
+    the hour for everybody, and every typed signature would say it came from the proxy."""
+    # the test client's peer, standing in for the proxy
+    monkeypatch.setattr(icla_routes, "_PROXIES", frozenset({"<local>"}))
+    monkeypatch.setattr(config.get().icla, "submissions_per_hour", 1)
+    client = running_app.test_client()
+
+    async def from_(address: str) -> int:
+        response = await client.post(
+            "/icla/submit", form=_form("typed", **SIGNED), headers={"X-Forwarded-For": address}
+        )
+        return response.status_code
+
+    codes = [await from_("192.0.2.1"), await from_("192.0.2.2"), await from_("192.0.2.1")]
+
+    assert codes == [201, 201, 429]
+    assert sorted(row.remote_address or "" for row in await _kept()) == ["192.0.2.1", "192.0.2.2"]
+
+
+async def test_another_sites_page_cannot_submit_or_download_for_its_visitors(running_app, mailed) -> None:
+    client = running_app.test_client()
+    cross = {"Sec-Fetch-Site": "cross-site"}
+
+    submitted = await client.post("/icla/submit", form=_form("typed", **SIGNED), headers=cross)
+    downloaded = await client.post("/icla/document", json=FIELDS, headers={"Origin": "https://evil.example"})
+
+    assert (submitted.status_code, downloaded.status_code) == (403, 403)
+    assert (await _kept(), mailed) == ([], [])
+
+
+async def test_a_submissions_files_go_in_a_folder_of_their_own_whatever_its_id(running_app, mailed) -> None:
+    """SQLite gives an id again after the newest row is deleted, and a rebuilt database starts again at 1."""
+    left = config.get().base.state_dir_path / "icla" / "1"
+    left.mkdir(parents=True)
+    (left / "icla.pdf").write_bytes(b"somebody else's")
+
+    response = await _submit(running_app.test_client(), _form("typed", **SIGNED))
+
+    assert response.status_code == 201
+    [row] = await _kept()
+    assert row.folder not in ("", "1")
+    assert (left / "icla.pdf").read_bytes() == b"somebody else's"
+    assert (config.get().base.state_dir_path / "icla" / row.folder / "icla.pdf").read_bytes().startswith(b"%PDF-")
+
+
+async def test_submissions_arriving_together_take_no_more_than_the_hour_allows(
+    running_app, mailed, monkeypatch
+) -> None:
+    import asyncio
+
+    monkeypatch.setattr(config.get().icla, "submissions_per_hour", 1)
+    upload = icla_routes._upload
+
+    async def slowly(name: str) -> bytes | None:
+        # an upload takes a while: long enough for the others to arrive while it is read
+        await asyncio.sleep(0.05)
+        return await upload(name)
+
+    monkeypatch.setattr(icla_routes, "_upload", slowly)
+    client = running_app.test_client()
+
+    responses = await asyncio.gather(*(_submit(client, _form("typed", **SIGNED)) for _ in range(4)))
+
+    assert sorted(r.status_code for r in responses) == [201, 429, 429, 429]
+    assert len(mailed) == 1
+
+
+async def test_what_is_logged_names_nobody(running_app, caplog) -> None:
+    """The log is the host's, and Admin reads it - at the level it is kept at. (At DEBUG, aiosqlite logs each
+    statement's parameters: debug logging is no setting for a host with this table.)"""
+    icla_routes.forget()
+    with caplog.at_level("INFO"):
+        await _submit(running_app.test_client(), _form("typed", **SIGNED))
+
+    assert "Lovelace" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("form", "field"),
+    [
+        (_form("typed", typed_signature="Ada\r\n\x1cLovelace", agreed="true"), "typedSignature"),
+        (_form("typed", {**FIELDS, "email": "a\x00b@example.org"}, **SIGNED), "email"),
+        (_form("typed", {**FIELDS, "email": 'a"b@example.org'}, **SIGNED), "email"),
+        (_form("typed", {**FIELDS, "invitation": "inv\t42"}, **SIGNED), "invitation"),
+    ],
+)
+async def test_a_control_character_or_a_stray_one_is_refused_where_it_was_written(
+    running_app, mailed, form: dict[str, str], field: str
+) -> None:
+    response = await _submit(running_app.test_client(), form)
+
+    assert response.status_code == 400
+    errors = (await response.get_json())["errors"]
+    assert list(errors) == [field]
+    assert "Project" not in errors[field], "the invitation's error names the invitation"
+
+
+async def test_fields_nested_past_reading_are_refused_and_not_a_500(running_app, mailed) -> None:
+    deep = "[" * 100_000 + "]" * 100_000
+
+    response = await running_app.test_client().post("/icla/submit", form={"fields": deep, "signing": "typed"})
+
+    assert response.status_code == 400
