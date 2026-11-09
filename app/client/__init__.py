@@ -124,4 +124,4 @@ def context_processor() -> dict[str, Any]:
     return {"asset": asset, "css_for_svelte_page": css_for_svelte_page}
 
 
-from . import handlers, routes
+from . import handlers, icla, routes
