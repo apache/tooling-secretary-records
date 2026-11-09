@@ -64,6 +64,7 @@ export default defineConfig(({ mode }) => {
                 preserveEntrySignatures: 'exports-only',
                 input: [
                     "src/js/pages/home.ts",
+                    "src/js/pages/icla.ts",
                     "src/css/app.css",
                 ],
                 output: {

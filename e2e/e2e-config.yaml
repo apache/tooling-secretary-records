@@ -11,3 +11,7 @@ server:
 
 logging:
   file: state-e2e/secretary-records.log
+
+icla:
+  # every run submits from one address, and a kept server sees several runs
+  submissions_per_hour: 1000

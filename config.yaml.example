@@ -44,3 +44,10 @@ roles:
 # smtp:
 #   host: mail-relay.apache.org                 # required if this block is present
 #   port: 587                                   # default: 587
+
+# The ICLA submission form at /icla (REQUIREMENTS.md, F-101).
+icla:
+  deliver_to: secretary@apache.org              # default: secretary@apache.org
+  # BAT's list of PMCs and podlings the form offers; leave it out to offer a text field alone
+  # projects_url: https://agenda.apache.org/projects.json
+  submissions_per_hour: 5                       # from one address; default: 5
