@@ -205,8 +205,7 @@
       <h2>ICLA received, not yet sent on</h2>
       <p>
         Your ICLA is kept here, but it could not be mailed to the Secretary just now. So that it reaches them, also
-        email the signed ICLA to <a href="mailto:secretary@apache.org">secretary@apache.org</a>
-        .
+        email the signed ICLA to the Secretary: <a href="mailto:secretary@apache.org">secretary@apache.org</a>
       </p>
     {/if}
   </div>
