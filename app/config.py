@@ -122,7 +122,8 @@ class IclaConfig(pydantic.BaseModel):
     """Where a submission is mailed, as an emailed ICLA arrives today, beside the record kept of it."""
 
     projects_url: str | None = None
-    """BAT's `/projects.json`, the projects a submitter may name (F-102); None offers a text field alone."""
+    """The Roster's `/api/roster/projects`, the projects a submitter may name (F-102); None offers a text
+    field alone."""
 
     submissions_per_hour: int = 5
     """From one address: the form is open to anybody, and each submission is mail to the Secretary."""

@@ -266,8 +266,8 @@ async def test_with_no_projects_url_the_form_offers_none(running_app) -> None:
 
 async def test_the_projects_are_bats_and_a_failed_read_keeps_the_last(running_app, monkeypatch) -> None:
     projects.forget()
-    monkeypatch.setattr(config.get().icla, "projects_url", "https://agenda.apache.org/projects.json")
-    answers: list[Any] = [[{"id": "arbustum", "name": "Arbustum", "kind": "pmc"}], OSError("BAT is down")]
+    monkeypatch.setattr(config.get().icla, "projects_url", "https://agenda.apache.org/api/roster/projects")
+    answers: list[Any] = [[{"id": "arbustum", "name": "Arbustum", "kind": "pmc"}], OSError("the Roster is down")]
 
     def read(_url: str) -> list[projects.Project]:
         answer = answers.pop(0)

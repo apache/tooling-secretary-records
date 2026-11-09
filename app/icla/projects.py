@@ -15,9 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""The projects a submitter may name (F-102): every PMC and podling, as BAT publishes them at
-`/projects.json`. Read at most once an hour; where BAT cannot be read, the last list read stands, and with
-none the form offers a text field alone."""
+"""The projects a submitter may name (F-102): every PMC and podling, as the Roster lists them at
+`/api/roster/projects`. Read at most once an hour; where the Roster cannot be read, the last list read stands,
+and with none the form offers a text field alone."""
 
 from __future__ import annotations
 
@@ -67,7 +67,7 @@ def _read(url: str) -> list[Project]:
 
 
 async def offered() -> list[Project]:
-    """The projects, as last read from BAT - read again where that was over an hour ago."""
+    """The projects, as last read from the Roster - read again where that was over an hour ago."""
     url = config.get().icla.projects_url
     if url is None:
         return []
