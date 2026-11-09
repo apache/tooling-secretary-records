@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 
 import IclaForm from '@/js/components/IclaForm.svelte';
 import type { IclaApi, IclaFields } from '@/js/libs/icla';
@@ -82,6 +82,32 @@ describe('the ICLA form', () => {
     expect(said.id).toBe('icla-email-error');
     expect(screen.getByLabelText('Email').getAttribute('aria-describedby')).toContain('icla-email-error');
     expect(screen.queryByRole('heading', { name: 'ICLA sent' })).toBeNull();
+  });
+
+  it('says an ICLA kept but not mailed is not yet with the Secretary, and how to make sure it is', async () => {
+    render(IclaForm, { api: serving(json({ received: true, mailed: false }, 201)) });
+
+    await fillIn();
+    await fireEvent.click(screen.getByLabelText('Type your name to sign'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Send the ICLA' }));
+
+    expect(await screen.findByRole('heading', { name: 'ICLA received, not yet sent on' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'secretary@apache.org' })).toBeTruthy();
+    expect(screen.queryByText(/The Secretary has your ICLA/)).toBeNull();
+  });
+
+  it('says an error beside a field named in more than one word, and one it has no field for at the top', async () => {
+    const api = serving(
+      json({ errors: { fullName: 'Full name holds a character that cannot be printed', invitation: 'The invitation is wrong' } }, 400)
+    );
+    render(IclaForm, { api });
+
+    await fillIn();
+    await fireEvent.click(screen.getByLabelText('Type your name to sign'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Send the ICLA' }));
+
+    expect((await screen.findByText(/Full name holds/)).id).toBe('icla-fullName-error');
+    expect(within(screen.getByRole('alert')).getByText(/The invitation is wrong/)).toBeTruthy();
   });
 
   it('says what went wrong with the whole where the server does not say a field', async () => {

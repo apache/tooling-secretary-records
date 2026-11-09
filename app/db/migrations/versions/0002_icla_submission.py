@@ -58,6 +58,7 @@ def upgrade() -> None:
         sa.Column("typed_signature", text(), nullable=True),
         sa.Column("remote_address", text(), nullable=True),
         sa.Column("files", text(), nullable=False),
+        sa.Column("folder", text(), nullable=False),
         sa.Column("mailed", sa.Boolean(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )

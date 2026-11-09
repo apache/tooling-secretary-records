@@ -17,6 +17,9 @@
 
 """Sending mail: to the Secretary, of what arrived for them.
 
+What is logged names a message by its id and never by its subject, which names the person it is about:
+the log is the host's, and Admin reads it (REQUIREMENTS R-1).
+
 Nothing is sent where the configuration names no relay (`AppConfig.smtp`): an instance that says nothing
 about mail sends none, and says so in its log, rather than claiming it did.
 """
@@ -49,13 +52,13 @@ async def send(email: EmailMessage) -> bool:
         email["Message-Id"] = make_msgid(domain="apache.org")
     smtp = config.get().smtp
     if smtp is None:
-        _LOGGER.warning("no SMTP is configured: not sending '%s' to %s", email["Subject"], email["To"])
+        _LOGGER.warning("no SMTP is configured: not sending %s to %s", email["Message-Id"], email["To"])
         return False
     errors, response = await aiosmtplib.send(
         email, hostname=smtp.host, port=smtp.port, timeout=_SMTP_TIMEOUT, start_tls=True
     )
     if errors:
-        _LOGGER.warning("'%s' was refused by %s", email["Subject"], ", ".join(errors))
+        _LOGGER.warning("%s was refused by %s", email["Message-Id"], ", ".join(errors))
         return False
-    _LOGGER.info("sent '%s' to %s: %s", email["Subject"], email["To"], response)
+    _LOGGER.info("sent %s to %s: %s", email["Message-Id"], email["To"], response)
     return True
