@@ -205,6 +205,11 @@ busy_pid=$!
 landed parent
 git worktree add -q "$work/parent/.claude/worktrees/agent" -b agent origin/main
 echo work > "$work/parent/.claude/worktrees/agent/work.txt"
+# a worktree inside one, under state/, which is scratch and so is not what keeps the outer one:
+# only that it holds a worktree does, whose untracked work git would remove with it
+landed scratchparent
+git worktree add -q "$work/scratchparent/state/inner" -b inner origin/main
+echo work > "$work/scratchparent/state/inner/work.txt"
 landed locked
 git worktree lock "$work/locked"
 # on main without a commit of its own: a topic just claimed, and one claimed and then rebased
@@ -216,7 +221,8 @@ landed recent
 landed staging
 git fetch -q origin
 for w in landed squashed oom stopped review corrupt behind closed stacked unmerged ghfail local dirty boom hidden made \
-    excluded nested stately database skipped assumed rebasing running named busy parent locked claimed rebased; do
+    excluded nested stately database skipped assumed rebasing running named busy parent scratchparent locked claimed \
+    rebased; do
     idle "$work/$w"
 done
 gitdir=$(git -C "$work/staging" rev-parse --path-format=absolute --git-dir)
@@ -264,6 +270,7 @@ says "keep $work/running (a container made for it is running)" "a container labe
 says "keep $work/named (a container made for it is running)" "a container known only by its name is found"
 says "keep $work/busy (a process is working in it)" "a process working in it keeps it"
 says "keep $work/parent (holds the worktree $work/parent/.claude/worktrees/agent)" "a worktree holding another is kept"
+says "keep $work/scratchparent (holds the worktree $work/scratchparent/state/inner)" "a worktree holding another in state/ is kept"
 says "keep $work/locked (locked)" "a locked worktree is kept"
 says "keep $work/claimed (its branch was made from main and has had no commit of its own)" "a topic just claimed is kept"
 says "keep $work/rebased (its branch was made from main and has had no commit of its own)" "a claimed topic rebased onto main is still claimed"
@@ -307,12 +314,13 @@ says "note: no container runtime found" "without a container runtime it says wha
 silent "keep $work/local (not on origin/main, and GitHub" "without gh nothing is said about GitHub"
 
 # worktree-done.sh itself refuses what status does not show, and each keeps its work
-for w in parent hidden excluded skipped rebasing; do
+for w in parent scratchparent hidden excluded skipped rebasing; do
     if SR_RUNTIME=false sh "$here/worktree-done.sh" "$work/$w" > "$work/out" 2>&1; then
         fail "worktree-done.sh removed $w: $(tr '\n' '|' < "$work/out")"
     fi
 done
 [ -f "$work/parent/.claude/worktrees/agent/work.txt" ] || fail "the worktree inside parent lost its work"
+[ -f "$work/scratchparent/state/inner/work.txt" ] || fail "the worktree inside scratchparent's state/ lost its work"
 [ -f "$work/hidden/draft.md" ] || fail "hidden lost its untracked file"
 [ -f "$work/excluded/notes.md" ] || fail "excluded lost its file"
 grep -q edit "$work/skipped/.gitignore" || fail "skipped lost its edit"
