@@ -41,6 +41,7 @@
 #     `env -S`, `sudo -u`
 #   - a value exported earlier on the line or in the session: `export FILTER=...; make e2e-quick`
 #   - a command piped or redirected into a shell as text: `echo 'uv run pytest' | sh`, `sh <<EOF`
+#   - what `find -exec` or `rg --pre` runs: `find . -exec uv run pytest \;`, `rg --pre ./x pattern`
 # Reading make's arguments word by word costs time: a five-part line with a make wrapper in it
 # went from 34ms to 47ms.
 
@@ -773,8 +774,8 @@ AGENTS.md, \"Writing on an issue or a pull request\"."
 # Whether a `git` or `gh` part ($1, the whole part) is a subcommand that only reads or
 # writes text. The options before the subcommand are read for what they are: `-C` takes a
 # path, `-c` and `--config-env` run configuration, which can name a shell. `gh`'s `alias`,
-# `extension` and `config` are not in the list, and neither is `git grep`, whose `-O` runs a
-# pager through a shell. `printf` is not among the readers below: `printf -v` assigns.
+# `extension` and `config` are not in the list. `git grep` reads text unless its options hand
+# something to a shell (`grep_runs_a_shell`).
 text_subcommand() {
     set -f
     # shellcheck disable=SC2086  # splitting the part into its words is the point
@@ -792,12 +793,60 @@ text_subcommand() {
         shift
     done
     case $_tool:${1:-} in
+        git:grep)
+            shift
+            ! grep_runs_a_shell "$@"
+            ;;
         git:log | git:show | git:diff | git:status | git:commit | git:branch | \
             git:rev-parse | git:ls-files | git:blame | git:tag | git:notes | git:describe | \
             git:shortlog | git:cat-file | git:merge-base | git:rev-list | git:add) return 0 ;;
         gh:pr | gh:issue | gh:run | gh:api | gh:release | gh:search) return 0 ;;
         *) return 1 ;;
     esac
+}
+
+# Whether `git grep`'s options ($@, the words after `grep`) hand something to a shell:
+# `-O`/`--open-files-in-pager`, in any abbreviation git accepts (`--op`) or cluster (`-nO...`),
+# and a word the shell expands (`$opt`), which could be either. git grep takes its options
+# first and refuses one after a pattern or a path, so the scan stops at the first word that is
+# not an option, and at `--`. A value an option takes is not an option: `-e -SR_ISOLATED` is
+# a pattern. A long option this does not know may take the next word as its value, so that word
+# does not end the scan.
+grep_runs_a_shell() {
+    _value=no
+    for _word in "$@"; do
+        case $_value in
+            yes)
+                _value=no
+                continue
+                ;;
+            maybe) _maybe=yes ;;
+            *) _maybe=no ;;
+        esac
+        _value=no
+        case $_word in
+            --) return 1 ;;
+            '$'*) return 0 ;;
+            --op*) return 0 ;;
+            --regexp | --file | --max-depth | --threads | --context | --after-context | \
+                --before-context | --max-count) _value=yes ;;
+            --*=*) : ;;
+            --*) _value=maybe ;;
+            -?*)
+                # -e -f -A -B -C -m take a value: attached, or the next word when last
+                if cluster_carries "$_word" O efABCm; then
+                    return 0
+                fi
+                _letters=${_word#-}
+                _before=${_letters%%[efABCm]*}
+                if [ "$_before" != "$_letters" ] && [ -z "${_letters#"$_before"?}" ]; then
+                    _value=yes
+                fi
+                ;;
+            *) [ "$_maybe" = yes ] || return 1 ;;
+        esac
+    done
+    return 1
 }
 
 check_isolated_assignment() {
@@ -812,7 +861,21 @@ check_isolated_assignment() {
         *SR_ISOLATED*) : ;;
         *) return 0 ;;
     esac
-    _trimmed=$_flat
+    if reads_text "$_flat"; then
+        return 0
+    fi
+    refuse "SR_ISOLATED is the environment's to set, and this command sets it." \
+        "A disposable environment sets it where the agent is started (its
+template, or managed settings). Without it, use the wrappers as they are:
+  make container-check | make container-test | make container-quality
+
+AGENTS.md, \"Everything runs in a container\"."
+}
+
+# Whether a part ($1, quotes already taken out) runs something that only reads text, where a word
+# is a message or a pattern rather than an assignment.
+reads_text() {
+    _trimmed=$1
     while :; do
         case $_trimmed in
             [[:space:]]* | '('* | '{'* | '!'*) _trimmed=${_trimmed#?} ;;
@@ -821,21 +884,124 @@ check_isolated_assignment() {
     done
     _head=${_trimmed%%[[:space:]]*}
     case ${_head##*/} in
-        git | gh)
-            if text_subcommand "$_trimmed"; then
-                return 0
+        git | gh) text_subcommand "$_trimmed" ;;
+        # not `printf`: `printf -v SR_ISOLATED 1` assigns it, and `set -a` exports it
+        grep | rg | echo | cat | jq | head | tail | ls | wc | diff) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# allexport exports every variable assigned after it, and then a reader can assign SR_ISOLATED
+# without naming it the way a setter does - `echo ${SR_ISOLATED:=1}`, an arithmetic `$[...]`,
+# an array subscript - and the wrapper after it reads it from the environment. Every other way
+# of exporting it names it in a part that is not a reader, which check_isolated_assignment
+# refuses. So where the environment has not set it, allexport is refused in every spelling:
+# `set -a` or a cluster holding `a` (`set -euao pipefail`), the same flag to a shell (`bash -a`),
+# and the word `allexport` (`set -o allexport`, `SHELLOPTS=allexport`) outside a reader.
+check_allexport() {
+    if isolated; then
+        return 0
+    fi
+    case $(printf '%s' "$1" | tr -d "'\"\\\\") in
+        *allexport*)
+            if ! reads_text "$(printf '%s' "$1" | tr -d "'\"\\\\")"; then
+                refuse_allexport
             fi
             ;;
-        grep | rg | echo | cat | jq | head | tail | ls | wc | diff) return 0 ;;
         *) : ;;
     esac
-    refuse "SR_ISOLATED is the environment's to set, and this command sets it." \
-        "A disposable environment sets it where the agent is started (its
-template, or managed settings). Without it, use the wrappers as they are:
-  make container-check | make container-test | make container-quality
+    _words=$(unquote_values "$1")
+    set -f
+    # shellcheck disable=SC2086  # splitting the part into its words is the point
+    set -- $_words
+    set +f
+    _at_command=yes
+    while [ "$#" -gt 0 ]; do
+        _word=$1
+        shift
+        if [ "$_at_command" = yes ]; then
+            case ${_word##*/} in
+                set | sh | bash | dash | ash | zsh | ksh)
+                    if exports_all "$@"; then
+                        refuse_allexport
+                    fi
+                    return 0
+                    ;;
+                # what may stand before a command: a keyword, a prefix, and the prefix's options
+                then | do | else | elif | if | while | until | '!' | '{' | time | exec | command | \
+                    builtin | sudo | env | nohup | timeout | nice | stdbuf | *=* | -* | [0-9]*) : ;;
+                *) _at_command=no ;;
+            esac
+        fi
+    done
+}
+
+# Whether the options of `set` or of a shell ($@) turn allexport on: a short cluster holding `a`.
+# The options end at `--`, `-`, and the first word that is not one.
+exports_all() {
+    for _word in "$@"; do
+        case $_word in
+            -- | -) return 1 ;;
+            --*) : ;;
+            -*a*) return 0 ;;
+            -* | +*) : ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
+}
+
+refuse_allexport() {
+    refuse "allexport (\`set -a\`, \`set -o allexport\`, \`bash -a\`) exports whatever is assigned after it, SR_ISOLATED included, under spellings this guard cannot read as setting it." \
+        "Export what a command needs by name, or pass it on the command line:
+  FOO=1 scripts/container.sh make test
 
 AGENTS.md, \"Everything runs in a container\"."
 }
+
+# The command string a shell is handed with `-c`, from the raw part ($1, the shell's name first),
+# or nothing. `-c` may share a cluster - `bash -lc '...'`, `sh -ec '...'` - and other options may
+# stand before it, `-o pipefail` and `--rcfile file` taking a word of their own. The string is the
+# first word after the options; a word before any `-c` is a script, and then there is no string.
+command_string() {
+    _rest=$1
+    _seen_c=no
+    _skip=no
+    while :; do
+        case $_rest in
+            *[[:space:]]*) _rest=${_rest#*[[:space:]]} ;;
+            *) return 0 ;;
+        esac
+        _rest=${_rest#"${_rest%%[![:space:]]*}"}
+        _word=${_rest%%[[:space:]]*}
+        if [ "$_skip" = yes ]; then
+            _skip=no
+            continue
+        fi
+        case $_word in
+            '') return 0 ;;
+            --rcfile | --init-file) _skip=yes ;;
+            --*) : ;;
+            [-+]*)
+                case $_word in
+                    -*c*) _seen_c=yes ;;
+                    *) : ;;
+                esac
+                case $_word in
+                    *[oO]) _skip=yes ;;
+                    *) : ;;
+                esac
+                ;;
+            *)
+                if [ "$_seen_c" = yes ]; then
+                    printf '%s' "$_rest"
+                fi
+                return 0
+                ;;
+        esac
+    done
+}
+
 
 # The words of $1 as a shell reads them, one to a line: split on whitespace outside quotes, the quotes
 # gone, a backslash outside single quotes taking the next character as it is. The words this guard
@@ -1036,6 +1202,7 @@ EOF
 
 check_part() {
     check_isolated_assignment "$1"
+    check_allexport "$1"
     _whole=$1
     _stripped=$(strip_prefixes "$1")
 
@@ -1048,23 +1215,20 @@ check_part() {
     _head=${_stripped%%[[:space:]]*}
     case ${_head##*/} in
         sh | bash | dash | ash | zsh | ksh)
-            case $_stripped in
-                *[[:space:]]-c[[:space:]]*)
-                    _inner=${_stripped#*[[:space:]]-c[[:space:]]}
-                    # The command string is quoted as a whole, and the quotes around it
-                    # are the shell's rather than part of what runs.
-                    case $_inner in
-                        "'"*"'" | '"'*'"')
-                            _inner=${_inner#?}
-                            _inner=${_inner%?}
-                            ;;
-                        *) : ;;
-                    esac
-                    check_line "$_inner"
-                    return 0
-                    ;;
-                *) : ;;
-            esac
+            _inner=$(command_string "$_stripped")
+            if [ -n "$_inner" ]; then
+                # The command string is quoted as a whole, and the quotes around it
+                # are the shell's rather than part of what runs.
+                case $_inner in
+                    "'"*"'" | '"'*'"')
+                        _inner=${_inner#?}
+                        _inner=${_inner%?}
+                        ;;
+                    *) : ;;
+                esac
+                check_line "$_inner"
+                return 0
+            fi
             ;;
         *) : ;;
     esac

@@ -88,6 +88,13 @@ refuse 'bash -c "uv run pytest"'
 refuse "sh -c 'git add -A'"
 refuse "sh -c \"sh -c 'yarn build'\""
 refuse '/bin/sh -c "make test"'
+# `-c` in a cluster, and options before it, hand over a string all the same.
+refuse "bash -lc 'uv run pytest'"
+refuse "sh -ec 'uv run pytest'"
+refuse "bash -o pipefail -c 'uv run pytest'"
+refuse "bash --rcfile x -lc 'uv run pytest'"
+allow "bash -lc 'make container-test'"
+allow 'bash scripts/pr-preflight.sh'
 refuse 'timeout 600 make test'
 refuse 'timeout --signal=KILL 600 pytest'
 allow "sh -c 'ls e2e/screenshots'"
@@ -925,6 +932,7 @@ refuse 'printf -v SR_ISOLATED 1; export SR_ISOLATED; make container-test'
 # `printf -v` assigns, so printf is not a command that only reads text.
 refuse 'set -a; printf -v SR_ISOLATED 1; scripts/container.sh make test'
 refuse 'printf -v SR_ISOLATED 1'
+refuse 'printf -v SR_ISOLATED 1; make container-test'
 refuse 'env SR_ISO"LATED"=1 scripts/container.sh make test'
 refuse 'env SR_ISOLATED"="1 scripts/container.sh make test'
 # The backslash is taken out before the name is looked for: nothing else in this case has it.
@@ -940,6 +948,39 @@ refuse "git submodule foreach 'SR_ISOLATED=1 scripts/container.sh make test'"
 # `git grep -O` opens the files it found in a pager, which is a command it runs through a shell.
 refuse "git grep -O'SR_ISOLATED=1 scripts/container.sh make test;:' -e x"
 refuse "git grep --open-files-in-pager='SR_ISOLATED=1 scripts/container.sh make test;:' -e x"
+refuse "git grep --op='SR_ISOLATED=1 scripts/container.sh make test;:' -e x"
+refuse "git grep -nO'SR_ISOLATED=1 scripts/container.sh make test;:' -e x"
+allow 'git grep -n SR_ISOLATED'
+allow 'git -C ../other grep -e SR_ISOLATED -- AGENTS.md'
+# A word the shell expands could be `-O...`; a value an option takes, and anything after the first
+# word that is not an option, is not an option at all - git grep refuses an option there.
+refuse 'git grep $opt -e x SR_ISOLATED'
+refuse "git grep -e x -O'SR_ISOLATED=1 scripts/container.sh make test;:'"
+refuse "git grep --max-d 3 -O'SR_ISOLATED=1 scripts/container.sh make test;:' -e x"
+allow 'git grep -e -SR_ISOLATED'
+allow 'git grep --regexp -SR_ISOLATED'
+allow 'git grep -n SR_ISOLATED -- -O.txt'
+allow 'git grep -n SR_ISOLATED -O.txt'
+allow 'git grep -A 3 -e SR_ISOLATED'
+# allexport: after it, a reader can assign the variable and the wrapper read it from the
+# environment. Every spelling is refused; switching it off, and options that leave it off, are not.
+refuse 'set -a; echo ${SR_ISOLATED:=1}; scripts/container.sh make test'
+refuse 'set -a; echo $[SR_ISOLATED=1]; scripts/container.sh make test'
+refuse 'set -a'
+refuse 'set -ae; make container-test'
+refuse 'set -euao pipefail; make container-test'
+refuse 'set -o allexport; make container-test'
+refuse 'set -eo allexport'
+refuse 'if true; then set -a; fi'
+refuse 'bash -a -c "make container-test"'
+refuse 'env SHELLOPTS=allexport bash -c "make container-test"'
+allow 'set -euo pipefail; make container-test'
+allow 'set +a'
+allow 'set -- -a b'
+allow 'echo set -a'
+allow 'grep -rn allexport scripts'
+allow 'git commit -m "refuse set -a"'
+in_isolated allow 'set -a; make test'
 refuse "git filter-branch --tree-filter 'SR_ISOLATED=1 scripts/container.sh make test' HEAD"
 refuse "git difftool -x 'SR_ISOLATED=1 scripts/container.sh make test'"
 refuse 'git config core.pager SR_ISOLATED=1'
