@@ -40,6 +40,11 @@ on:
         description: 'Compare with this commit or branch; empty: the last full run'
         required: false
         default: ''
+      bootstrap:
+        description: 'Once only, when no commit has compared clean: if main compares clean with the base, it becomes the first'
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -131,24 +136,28 @@ jobs:
           key: behaviour-passed-none
           restore-keys: behaviour-passed-
 
-      # What this run compares with becomes the next night's base only where it is the last one, or where
-      # there is none: a run dispatched with any other base would otherwise clear a red night, by comparing
-      # main with itself and saving it as clean. With no last record and no last clean commit - the first
-      # run of all, or both evicted - a dispatched base is how one is made.
-      - name: Whether this run may make the next base
+      # A run with a base asked for compares with it and leaves the next night's base alone: promoting it would
+      # let a red night be cleared by asking for the failing commit as its own base. The one exception is the
+      # first, and it is asked for by name: a cache that is down or was purged looks the same as one that never
+      # held a clean commit, so an empty cache alone is not taken for the first run.
+      - name: Whether this run sets the next base
         id: promote
         if: steps.run.outputs.value == 'true'
         env:
           ASKED: ${{ inputs.base }}
-          LAST: ${{ steps.last.outputs.cache-matched-key }}
+          BOOTSTRAP: ${{ inputs.bootstrap }}
+          PASSED: ${{ steps.passed.outputs.cache-matched-key }}
         run: |
           if [ -z "$ASKED" ]; then
               echo "value=true" >> "$GITHUB_OUTPUT"
-          elif [ -z "$LAST" ] && [ ! -s state/behaviour-passed ]; then
-              echo "there is no last full record and no last clean commit: this run makes the first base"
+          elif [ "$BOOTSTRAP" = true ] && [ -z "$PASSED" ]; then
+              echo "asked to bootstrap: if main compares clean with $ASKED, it is the first base"
               echo "value=true" >> "$GITHUB_OUTPUT"
+          elif [ "$BOOTSTRAP" = true ]; then
+              echo "::warning::Not a bootstrap: $PASSED says a commit has compared clean already. The next base stays as it was."
+              echo "value=false" >> "$GITHUB_OUTPUT"
           else
-              echo "a base was asked for, and a last full run exists: this run compares and saves nothing"
+              echo "compared with $ASKED; the last full run stays the next one's base"
               echo "value=false" >> "$GITHUB_OUTPUT"
           fi
 
@@ -165,7 +174,7 @@ jobs:
               echo "the last full record is gone: recording $base, the last commit that compared clean, again"
           fi
           if [ -z "$base" ]; then
-              echo "::error::There is no last full record and no last clean commit to record one from. Run this workflow with a base, the last commit known to answer as main should."
+              echo "::error::There is no last full record and no last clean commit to record one from. Run this workflow with a base, the last commit known to answer as main should, and bootstrap set."
               exit 1
           fi
           uv run scripts/ci/behaviour.py base --ref "$base"
@@ -186,8 +195,8 @@ jobs:
 
       # Only a commit that compared clean becomes the next night's base: one that differed stays failing
       # until a commit allows the difference or undoes it, rather than being forgotten by the next run.
-      # A run dispatched with a base counts only where it made the first base (see "Whether this run may make
-      # the next base"): dispatch it once with main itself as the base, after the harness merges.
+      # A run dispatched with a base counts only where it was asked to bootstrap (see "Whether this run sets
+      # the next base").
       - name: This commit is the next full run's base
         if: success() && steps.run.outputs.value == 'true' && steps.promote.outputs.value == 'true'
         run: |
@@ -229,12 +238,16 @@ jobs:
           RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SHA: ${{ github.sha }}
         run: |
+          # a lookup that failed is not a lookup that found nothing, and would open a second issue
+          set -o pipefail
           base=$(jq -r .commit state/behaviour-base.behaviour-record.json 2>/dev/null || echo unknown)
           title="What the app answers, in full, differs on main"
           body="The nightly full comparison failed over ${base:0:12}..${SHA:0:12}: $RUN"
-          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --author app/github-actions \
-              --search "\"$title\" in:title" --json number,title \
-              --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          number=$(
+              gh issue list --repo "$GITHUB_REPOSITORY" --state open --author app/github-actions \
+                  --search "\"$title\" in:title" --json number,title --jq '.[] | "\(.number)\t\(.title)"' |
+                  awk -F '\t' -v title="$title" '$2 == title && !found { print $1; found = 1 }'
+          )
           if [ -n "$number" ]; then
               gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
           else

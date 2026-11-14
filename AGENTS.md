@@ -338,7 +338,8 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   branch's `Behaviour-Allow:` and `Behaviour-Harness:` lines in the trailer
   block at the end of the squashed message** - GitHub's default message strings
   each commit's message into a list, where they are no longer trailers. Its
-  first base is made by dispatching it once with a base, as its header says.
+  first base is made by dispatching it once with a base and `bootstrap` set,
+  which it honours only while no commit has compared clean.
 - **Show a new assertion failing before you trust it.** Run it against the code
   as it was before your change, and put what it reported in the pull request. A
   test that has only ever passed has not been shown to test anything, and
