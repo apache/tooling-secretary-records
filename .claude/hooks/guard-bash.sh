@@ -40,6 +40,7 @@
 #   - a runner it does not list, or one of its options it does not know: `stdbuf`, `ionice`,
 #     `env -S`, `sudo -u`
 #   - a value exported earlier on the line or in the session: `export FILTER=...; make e2e-quick`
+#   - a command piped or redirected into a shell as text: `echo 'uv run pytest' | sh`, `sh <<EOF`
 # Reading make's arguments word by word costs time: a five-part line with a make wrapper in it
 # went from 34ms to 47ms.
 
@@ -772,7 +773,8 @@ AGENTS.md, \"Writing on an issue or a pull request\"."
 # Whether a `git` or `gh` part ($1, the whole part) is a subcommand that only reads or
 # writes text. The options before the subcommand are read for what they are: `-C` takes a
 # path, `-c` and `--config-env` run configuration, which can name a shell. `gh`'s `alias`,
-# `extension` and `config` are not in the list.
+# `extension` and `config` are not in the list, and neither is `git grep`, whose `-O` runs a
+# pager through a shell. `printf` is not among the readers below: `printf -v` assigns.
 text_subcommand() {
     set -f
     # shellcheck disable=SC2086  # splitting the part into its words is the point
@@ -790,7 +792,7 @@ text_subcommand() {
         shift
     done
     case $_tool:${1:-} in
-        git:log | git:show | git:diff | git:grep | git:status | git:commit | git:branch | \
+        git:log | git:show | git:diff | git:status | git:commit | git:branch | \
             git:rev-parse | git:ls-files | git:blame | git:tag | git:notes | git:describe | \
             git:shortlog | git:cat-file | git:merge-base | git:rev-list | git:add) return 0 ;;
         gh:pr | gh:issue | gh:run | gh:api | gh:release | gh:search) return 0 ;;
@@ -824,7 +826,7 @@ check_isolated_assignment() {
                 return 0
             fi
             ;;
-        grep | rg | echo | printf | cat | jq | head | tail | ls | wc | diff) return 0 ;;
+        grep | rg | echo | cat | jq | head | tail | ls | wc | diff) return 0 ;;
         *) : ;;
     esac
     refuse "SR_ISOLATED is the environment's to set, and this command sets it." \

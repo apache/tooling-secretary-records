@@ -921,6 +921,10 @@ refuse 'make container-test SR_ISOLATED\=1'
 refuse 'SR_ISOLATED+=1 make container-test'
 refuse 'read -r SR_ISOLATED <<< 1; export SR_ISOLATED; scripts/container.sh make test'
 refuse 'printf -v SR_ISOLATED 1; export SR_ISOLATED; make container-test'
+# The export is not what refuses it: `set -a` exports whatever is assigned after it, and
+# `printf -v` assigns, so printf is not a command that only reads text.
+refuse 'set -a; printf -v SR_ISOLATED 1; scripts/container.sh make test'
+refuse 'printf -v SR_ISOLATED 1'
 refuse 'env SR_ISO"LATED"=1 scripts/container.sh make test'
 refuse 'env SR_ISOLATED"="1 scripts/container.sh make test'
 # The backslash is taken out before the name is looked for: nothing else in this case has it.
@@ -933,6 +937,9 @@ refuse "git rebase -x 'SR_ISOLATED=1 scripts/container.sh make test' HEAD~1"
 refuse "git rebase --exec 'SR_ISOLATED=1 scripts/container.sh make test' HEAD~1"
 refuse 'git bisect run env SR_ISOLATED=1 scripts/container.sh make test'
 refuse "git submodule foreach 'SR_ISOLATED=1 scripts/container.sh make test'"
+# `git grep -O` opens the files it found in a pager, which is a command it runs through a shell.
+refuse "git grep -O'SR_ISOLATED=1 scripts/container.sh make test;:' -e x"
+refuse "git grep --open-files-in-pager='SR_ISOLATED=1 scripts/container.sh make test;:' -e x"
 refuse "git filter-branch --tree-filter 'SR_ISOLATED=1 scripts/container.sh make test' HEAD"
 refuse "git difftool -x 'SR_ISOLATED=1 scripts/container.sh make test'"
 refuse 'git config core.pager SR_ISOLATED=1'
