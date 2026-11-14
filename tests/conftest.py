@@ -72,11 +72,17 @@ def _migrated_db_template() -> Iterator[pathlib.Path]:
     `running_app` runs every migration plus an `alembic check` at startup; seeding each test's
     database from a copy of this one makes that a no-op rather than real DDL per test."""
     tmp_dir = tempfile.mkdtemp(prefix="secretary-records-test-db-")
-    db_path = pathlib.Path(tmp_dir) / "template.db"
+    yield build_migrated_db(pathlib.Path(tmp_dir))
+    shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
+def build_migrated_db(directory: pathlib.Path) -> pathlib.Path:
+    """The database migrated to head in `directory`. A row a migration seeds is stamped with the clock as
+    it reads while this runs, which is why the behaviour record builds one of its own under its pins."""
+    db_path = directory / "template.db"
     logging.getLogger("alembic").setLevel(logging.WARNING)
     alembic.command.upgrade(db.alembic_config(db_path), "head")
-    yield db_path
-    shutil.rmtree(tmp_dir, ignore_errors=True)
+    return db_path
 
 
 @pytest.fixture

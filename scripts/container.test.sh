@@ -61,6 +61,7 @@ capture() {
         RM_FILE="$work/rm" \
         PATH="$work:$PATH" \
         SR_RUNTIME=podman \
+        SR_ISOLATED='' \
         "$@" \
         "$script" true > "$work/out" 2>&1 || status=$?
 }
@@ -187,7 +188,7 @@ signalled() {
     : > "$work/argv"
     : > "$work/rm"
     ARGV_FILE="$work/argv" RM_FILE="$work/rm" BLOCK_RUN=1 \
-        PATH="$work:$PATH" SR_RUNTIME=podman \
+        PATH="$work:$PATH" SR_RUNTIME=podman SR_ISOLATED='' \
         "$script" true > "$work/out" 2>&1 &
     blocked=$!
 
@@ -224,6 +225,214 @@ grep -qxF "$started" "$work/rm" || fail "and removes the container this run star
 # what is left to assert is that the trap is set at all.
 grep -q "trap 'cleanup; exit 130' INT" "$script" ||
     fail "Ctrl-C has a trap too, which this can check for and cannot exercise"
+
+# --- where the whole environment is disposable ----------------------------------------
+
+# SR_ISOLATED=1 means no container: the stub runtime is on PATH and must not be asked for
+# anything, and the command runs in this checkout with its own exit status. The node check
+# is skipped because it needs yarn, which is not what is under test.
+isolated() {
+    : > "$work/argv"
+    status=0
+    ARGV_FILE="$work/argv" RM_FILE="$work/rm" PATH="$work:$PATH" SR_RUNTIME=podman \
+        SR_ISOLATED=1 SR_NODE_INSTALL=skip "$@" > "$work/out" 2>&1 || status=$?
+}
+
+isolated "$script" true
+[ "$status" -eq 0 ] || fail "SR_ISOLATED=1 runs the command"
+[ ! -s "$work/argv" ] || fail "and asks the runtime for nothing: a container here would rebuild the image"
+
+# From somewhere else: run from the checkout root, as `make check` does, it would pass
+# whether or not the script changed directory.
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+isolated sh -c 'cd "$1" && exec "$2" pwd' sh "$work" "$script"
+[ "$(cat "$work/out")" = "$(CDPATH='' cd -- "$here/.." && pwd)" ] ||
+    fail "the command runs in this checkout, where the container would have mounted it"
+
+# shellcheck disable=SC2016  # the inner shell expands this, not this one
+isolated "$script" sh -c 'printf %s "$PATH"'
+case $(cat "$work/out") in
+    "$HOME/.local/bin":*) : ;;
+    *) fail "yarn, which corepack puts in ~/.local/bin, is on the PATH the command gets" ;;
+esac
+
+isolated "$script" sh -c 'exit 7'
+[ "$status" -eq 7 ] || fail "and its exit status is the command's own, under a deadline"
+isolated env SR_TIMEOUT=0 "$script" sh -c 'exit 7'
+[ "$status" -eq 7 ] || fail "and with no deadline"
+
+# A signal sent to the script has to reach the command: `timeout` is a child, and a parent
+# killed without passing it on leaves the command running for up to the whole deadline.
+#
+# The command says which process it is, rather than being found by name: a name matches
+# another session's process, and a command that never started would read as one that stopped.
+rm -f "$work/pid"
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+SR_ISOLATED=1 SR_NODE_INSTALL=skip SR_TIMEOUT=60 \
+    "$script" sh -c 'echo $$ > "$1"; exec sleep 31' sh "$work/pid" > /dev/null 2>&1 &
+blocked=$!
+waited=0
+while [ ! -s "$work/pid" ] && [ "$waited" -lt 50 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+done
+if [ ! -s "$work/pid" ]; then
+    fail "the command the signal test starts did not start"
+else
+    kill -TERM "$blocked" 2>/dev/null || true
+    # Looked at a second after the signal and not after the script has ended: a script that
+    # waits for the command it did not stop only ends when the command does, and by then
+    # there is nothing left to find.
+    sleep 1
+    if kill -0 "$(cat "$work/pid")" 2>/dev/null; then
+        kill -KILL "$(cat "$work/pid")" 2>/dev/null || true
+        fail "TERM to the script stops the command it started, not only the script"
+    fi
+fi
+status=0
+wait "$blocked" 2>/dev/null || status=$?
+[ "$status" -eq 143 ] || fail "a script stopped by TERM says so with 143, as the container path does"
+
+# The status is the script's own and not whatever the command left: a command that handles
+# TERM and exits 7 must still give 143. A command killed by the TERM gives it anyway, so the
+# case above cannot tell a script that says 143 from one that passes the status on.
+rm -f "$work/pid"
+# shellcheck disable=SC2016  # the inner shell expands these, not this one
+SR_ISOLATED=1 SR_NODE_INSTALL=skip SR_TIMEOUT=60 \
+    "$script" sh -c 'trap "exit 7" TERM; echo $$ > "$1"; while :; do sleep 0.2; done' sh "$work/pid" \
+    > /dev/null 2>&1 &
+blocked=$!
+waited=0
+while [ ! -s "$work/pid" ] && [ "$waited" -lt 50 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+done
+kill -TERM "$blocked" 2>/dev/null || true
+status=0
+waited=0
+# bounded: the command is left running if the script never ends
+while kill -0 "$blocked" 2>/dev/null && [ "$waited" -lt 50 ]; do
+    sleep 0.1
+    waited=$((waited + 1))
+done
+if kill -0 "$blocked" 2>/dev/null; then
+    kill -KILL "$blocked" 2>/dev/null || true
+    [ ! -s "$work/pid" ] || kill -KILL "$(cat "$work/pid")" 2>/dev/null || true
+    fail "a script given TERM ends, even when its command handles the signal"
+fi
+wait "$blocked" 2>/dev/null || status=$?
+[ "$status" -eq 143 ] || fail "and says 143 whatever status its command ended with (was $status)"
+
+# What the command reads has to reach it: it is started in the background, where stdin
+# would otherwise be /dev/null.
+printf 'hello' | isolated "$script" cat
+[ "$(cat "$work/out")" = hello ] || fail "standard input reaches the command, under a deadline"
+
+# --- the two e2e wrappers, in a layout of their own ----------------------------------
+#
+# A copy of what they need, so that what they remove (`state-e2e`) and build is nobody's
+# checkout, and with stand-ins for the tools: what is under test is which they call, with
+# which arguments, and what they say afterwards.
+fake="$work/repo"
+mkdir -p "$fake/scripts" "$fake/assets" "$fake/e2e" "$work/stubs" "$work/home"
+for f in container.sh e2e-container.sh e2e-typecheck.sh checkout-id.sh checkout-resources.sh \
+    seed-volumes.sh; do
+    cp "$here/$f" "$fake/scripts/$f"
+done
+# Every stand-in says what it was called with and where it ran, so that a call made from
+# the wrong directory, or not made, is something to assert on. STUB_FAIL is `name` for
+# every call of that tool, or `name:first-argument` for one of them.
+cat > "$work/stubs/stub" <<'STUB'
+#!/bin/sh
+name=$(basename "$0")
+printf '%s' "$name" >> "$STUB_LOG"
+for a in "$@"; do printf ' [%s]' "$a" >> "$STUB_LOG"; done
+printf ' @ %s\n' "$(pwd)" >> "$STUB_LOG"
+[ "${STUB_FAIL:-}" = "$name" ] && exit 3
+[ "${STUB_FAIL:-}" = "$name:${1:-}" ] && exit 3
+exit 0
+STUB
+chmod +x "$work/stubs/stub"
+for tool in npm npx yarn; do
+    ln -s stub "$work/stubs/$tool"
+done
+# What the scripts call to match node_modules to the lockfile, in place of the real one,
+# which is skipped by SR_NODE_INSTALL in every other case here.
+cp "$work/stubs/stub" "$fake/scripts/ensure-node-modules.sh"
+
+e2e_isolated() {
+    : > "$work/stub.log"
+    status=0
+    STUB_LOG="$work/stub.log" HOME="$work/home" PATH="$work/stubs:$PATH" \
+        SR_ISOLATED=1 SR_NODE_INSTALL=skip "$@" > "$work/out" 2>&1 || status=$?
+}
+
+mkdir -p "$fake/state-e2e"
+: > "$fake/state-e2e/left-over"
+e2e_isolated "$fake/scripts/e2e-container.sh" -g 'two words'
+[ "$status" -eq 0 ] || fail "the isolated e2e run succeeds when the tools do"
+grep -qxF "npx [playwright] [test] [-g] [two words] @ $fake/e2e" "$work/stub.log" ||
+    fail "Playwright runs in e2e/, with its arguments as they were given, a quoted one still one"
+grep -qxF "yarn [build] @ $fake/assets" "$work/stub.log" ||
+    fail "the assets are built every run, in assets/, or the suite runs against the last bundle"
+grep -qxF "ensure-node-modules.sh [$fake/assets] @ $fake" "$work/stub.log" ||
+    fail "node_modules is matched to the lockfile first, for this checkout's assets/"
+grep -qxF "npm [install] [--no-audit] [--no-fund] @ $fake/e2e" "$work/stub.log" ||
+    fail "the specs' own dependencies are installed, quietly, in e2e/"
+grep -qxF 'npx [playwright] [install] [chromium] @ '"$fake/e2e" "$work/stub.log" ||
+    fail "and the browser"
+[ ! -e "$fake/state-e2e" ] || fail "the fixture copy of the last run is removed, or the suite starts from it"
+grep -qxF 'e2e: PASSED' "$work/out" || fail "and says so on stdout, which survives a pipe"
+
+e2e_isolated env STUB_FAIL=npx:playwright "$fake/scripts/e2e-container.sh"
+[ "$status" -eq 3 ] || fail "a failing suite is reported with the status Playwright gave"
+grep -q '^e2e: FAILED' "$work/out" || fail "and says so on stdout"
+
+e2e_isolated env STUB_FAIL=yarn "$fake/scripts/e2e-container.sh"
+[ "$status" -eq 3 ] || fail "a build that fails stops the run"
+grep -q 'playwright' "$work/stub.log" && fail "and the suite does not run against what it left"
+
+e2e_isolated env STUB_FAIL=ensure-node-modules.sh "$fake/scripts/e2e-container.sh"
+[ "$status" -eq 3 ] || fail "an install that fails stops the run"
+grep -q '^e2e: FAILED' "$work/out" || fail "and still ends in the line a pipe can read"
+grep -q 'yarn' "$work/stub.log" && fail "before anything is built"
+
+e2e_isolated "$fake/scripts/e2e-typecheck.sh"
+[ "$status" -eq 0 ] || fail "the isolated typecheck succeeds when tsc does"
+grep -qxF "npm [run] [--silent] [typecheck] @ $fake/e2e" "$work/stub.log" ||
+    fail "the typecheck runs in e2e/"
+grep -qxF "npm [install] [--no-audit] [--no-fund] [--loglevel=error] @ $fake/e2e" "$work/stub.log" ||
+    fail "after the dependencies are installed, there"
+grep -qxF 'e2e-typecheck: PASSED' "$work/out" || fail "and says so on stdout"
+e2e_isolated env STUB_FAIL=npm:run "$fake/scripts/e2e-typecheck.sh"
+[ "$status" -eq 3 ] || fail "a failing typecheck is reported with its status"
+grep -q '^e2e-typecheck: FAILED' "$work/out" || fail "and says so on stdout"
+e2e_isolated env STUB_FAIL=npm:install "$fake/scripts/e2e-typecheck.sh"
+grep -q 'typecheck' "$work/stub.log" && fail "an install that fails stops it before the typecheck"
+
+# container.sh in the same layout: it matches node_modules to the lockfile before it runs
+# the command, in this checkout's assets/.
+e2e_isolated "$fake/scripts/container.sh" true
+grep -qxF "ensure-node-modules.sh [$fake/assets] @ $fake" "$work/stub.log" ||
+    fail "container.sh provisions node_modules before the command, for this checkout"
+e2e_isolated env STUB_FAIL=ensure-node-modules.sh "$fake/scripts/container.sh" true
+[ "$status" -ne 0 ] || fail "and does not run the command when it cannot"
+
+isolated env SR_TIMEOUT=1 "$script" sleep 5
+[ "$status" -ne 0 ] || fail "the deadline applies without a container, or a hung command is never stopped"
+
+# What needs a container of its own is refused rather than run as something else: a
+# `container-test-py314` that ran on the default Python would report a different answer.
+isolated env SR_PYTHON=3.14 "$script" true
+[ "$status" -eq 2 ] || fail "SR_PYTHON is refused, not ignored"
+isolated env SR_DETACH=1 "$script" true
+[ "$status" -eq 2 ] || fail "SR_DETACH is refused, not ignored"
+isolated env SR_PORT=8080:8080 "$script" true
+[ "$status" -eq 2 ] || fail "SR_PORT is refused, not ignored"
+
+# Only 1 turns it on: another value is a container, as it was before this existed.
+capture env SR_ISOLATED=0
+[ -s "$work/argv" ] || fail "SR_ISOLATED=0 still runs in a container"
 
 if [ "$failures" -ne 0 ]; then
     echo "$failures check(s) failed" >&2

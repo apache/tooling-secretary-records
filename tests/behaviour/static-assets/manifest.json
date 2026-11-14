@@ -1,0 +1,14 @@
+{
+  "css/app.css": {
+    "file": "bundled/app-fixture.css",
+    "src": "css/app.css",
+    "isEntry": true
+  },
+  "js/pages/home.ts": {
+    "file": "bundled/home-fixture.js",
+    "name": "home",
+    "src": "js/pages/home.ts",
+    "isEntry": true,
+    "css": ["bundled/home-fixture.css"]
+  }
+}

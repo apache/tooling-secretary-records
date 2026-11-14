@@ -55,12 +55,14 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   to the book is made there first and copied here.
 - **Everything runs in a container.** All builds, linters, and tests run inside
   the dev container (Podman or Docker). Never install or run Python, Node,
-  `uv`, `pytest`, or `yarn` on the host. From a plain host shell, use the
-  wrapper targets rather than improvising `docker run` invocations:
+  `uv`, `pytest`, or `yarn` on the host - the machine that holds your
+  credentials and everything else you have. (A disposable environment is the
+  exception, below.) From a plain host shell, use the wrapper targets rather than
+  improvising `docker run` invocations:
 
   | Command | What it runs |
   | ------- | ------------ |
-  | `make container-verify` | everything that gates a push - check, lint, test, quality - behind one exit code |
+  | `make container-verify` | everything that gates a push - check, lint, test, snapshot, quality - behind one exit code |
   | `make container-check` | the pre-commit hooks |
   | `make container-test` | pytest + vitest |
   | `make container-pytest ARGS='...'` | one question: `ARGS='tests/test_webapp.py -k login -q'`, serial |
@@ -68,12 +70,34 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   | `make container-test-py314` | the same as `container-test`, on the 3.14 CI matrix version |
   | `make container-quality` | the quality ratchet (complexity, dead code, duplication) |
   | `make container-quality-base` | measure the merge base the ratchet compares against |
+  | `make container-snapshot-base` | record what the app answers with the merge base |
+  | `make container-snapshot` | record it with this checkout, and compare |
+  | `make container-snapshot-full SNAPSHOT_REF=...` | the same, everything whatever the change reaches, against any commit |
   | `make e2e-test` | Playwright, app and browser both containerised |
   | `make e2e-quick FILTER=...` | one spec, reusing the app container (`SR_KEEP=1`) |
   | `make e2e-typecheck` | `tsc` over the specs, in seconds - running them checks nothing |
   | `make container-shell` | an interactive shell |
   | `make container-keep` | the app on the e2e fixtures, detached on :8080, for looking at by hand: sign in at `/e2e/login/<uid>?roles=...` |
   | `make container-stop` | takes that one away again |
+
+  **Where the whole environment is disposable - a throwaway virtual machine or
+  sandbox, say - the same commands run without the container.** The rule is about
+  what the toolchain can reach, and a box with a throwaway filesystem and no
+  credentials of yours answers it. Such an environment sets `SR_ISOLATED=1` in the
+  environment the agent is started in (see
+  [CONTRIBUTING.md](CONTRIBUTING.md#a-disposable-environment); not anything an
+  agent or a command line sets). With it, the table above works unchanged:
+  `scripts/container.sh` runs the command in the checkout, and the `e2e-*`
+  wrappers run Playwright and `tsc` on the box. The guard stops refusing `uv`,
+  `yarn`, `make check` and the like, and goes on holding every other rule here.
+  Three settings need a container of their own and are refused there rather than
+  run as something else: `SR_PYTHON` (so `make container-test-py314`), `SR_DETACH`
+  and `SR_PORT` (so `make container-keep`); run `scripts/run-dev.sh` for the app.
+  What exists only to bound a container does nothing there, and says nothing: the
+  memory cap, `SR_MEMORY`, `SR_CONTAINER_NAME`, `SR_KEEP`, and `make
+  container-stop`, which has nothing to stop. The deadline, `SR_TIMEOUT`, does
+  apply. What the box needs installed is listed in the same section of
+  [CONTRIBUTING.md](CONTRIBUTING.md#a-disposable-environment).
 
   The `container-*` rows go through `scripts/container.sh`, which gives each one a name, a
   memory cap and an hour's deadline: a command that hangs stops by itself, and one that
@@ -130,6 +154,28 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   made before the scripts labelled them are judged by name, against this
   repository's worktrees and the directories beside it - a second clone kept
   elsewhere is not one it can see.
+
+  **Start a session by finishing what earlier ones left.** `git fetch`, then
+
+  ```sh
+  scripts/worktree-sweep.sh          # which worktrees are finished, and why each other one is kept
+  scripts/worktree-sweep.sh --yes    # finishes each finished one with worktree-done.sh
+  ```
+
+  A worktree is finished when its HEAD is on `origin/main`, or a pull request
+  merged into `main` with its HEAD as the head - a squash merge leaves no
+  ancestry, and a branch gone from `origin` can as well be one never pushed. It
+  stays, whatever its work, when removing it could take something nobody
+  committed or something still running: changes or untracked files, an ignored
+  file the toolchain does not write again (`config.yaml`, anything hidden
+  through `info/exclude`), a rebase stopped half way, a worktree inside it, a
+  running container or process, a branch made from main with no commit of its
+  own yet, or use in the last six hours, since a session next door may be in it.
+  `state/` is not among them: it is the checkout's own scratch, deleted with it,
+  so keep what must last elsewhere. The script's header has the full list, and
+  `worktree-done.sh` refuses the same things when run by hand. Everything else is
+  listed with the reason it stays. A worktree kept for changes after its work
+  merged is usually a draft from before a rebase: look before you force it.
 
   Before a change that moves a lot of code — a split, an extraction, a rename
   across a module — find out who else is in it. Ask about **every file the branch
@@ -229,6 +275,66 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   It must be a real trailer, in the block at the end of the message — git decides
   that, so a commit that merely mentions `Quality-Allow:` grants nothing.
   [docs/quality-ratchet.md](docs/quality-ratchet.md) has the whole picture.
+- **What the app answers may not change unless a commit says it should.**
+  `tests/behaviour` records every GET route as each reader is answered, and
+  what a fixed sequence of writes through the API changes - every table, and
+  the pages the writes reach (`tests/behaviour/scenarios.py`) - all from the test
+  fixture, on a pinned clock. The fixture is synthetic (N-8), which is what lets
+  the difference be printed in a CI step summary and kept as an artifact; a record
+  made from anything else would publish it. The app has no route that writes yet, so that
+  sequence is empty: the change that adds the first write adds its step, and a
+  step for each reader it must refuse. Nothing of the record is committed: like
+  the quality ratchet, it is recorded with the commit the branch would merge
+  into and with the branch, and the two are compared file by file
+  (`scripts/ci/behaviour.py`). CI takes the base from the run on `main`;
+  locally you record it yourself:
+
+  ```sh
+  make container-snapshot-base   # once per pull; re-run after rebasing
+  make container-snapshot        # record this checkout, and compare
+  ```
+
+  A refactor leaves every file as it was. A difference there is the refactor
+  changing behaviour, and is fixed in the code. A change that is *meant* to
+  alter what the app answers names what it alters, in the trailer block of the
+  commit that alters it, and the pull request says why:
+
+  ```text
+  Behaviour-Allow: http/admin/*.txt
+  ```
+
+  The value is a path in the record or a glob over paths (`*` crosses `/`), never
+  a bare `*` or `**`, and never one that matches every file the base record holds
+  (`*.txt` does, since every file of it ends so); `state/behaviour.diff` has every
+  difference to read before writing one. A trailer that allows nothing that changed is reported, and only
+  the branch's own commits count - not a merge, nor a branch merged in.
+
+  A change to the harness itself - `tests/behaviour`, the suite's conftest and
+  fixture data, `scripts/ci/behaviour*.py`, `scripts/ci/trailers.py` - says why
+  with `Behaviour-Harness: <why>`, and changes nothing under `app/`: the harness
+  first, recorded against the app it has, then the change to the app, recorded
+  by the new harness. A branch doing both is not compared. The one exception is
+  the change that brings the harness, whose base has none: it records, and has
+  nothing to compare with. A new GET route fails the walk until
+  `tests/behaviour/routes.py` can fill its parameters; anything rewritten before
+  it is recorded is a named rule in `tests/behaviour/normalise.py`, with the
+  reason it could not be pinned and examples both ways. Do not add one to quiet a
+  difference a change made: a rule hides whatever it matches, from every later
+  change too.
+
+  A pull request records only the parts its change can reach - read off which
+  of `app/` each part ran, kept beside the base's record - and everything when
+  it touches what that cannot see: templates, static files, data, migrations,
+  the fixture, the harness, the dependencies, the Makefile, CI, or code that
+  runs at startup (`EVERYTHING_WHEN` in `scripts/ci/behaviour_selection.py`). The
+  `What the app answers, in full` workflow is the backstop: every night that main
+  has moved it records everything and compares it with the last full run,
+  failing with the commit range where something changed unallowed. It reads the
+  trailers of main's own commits for that, so **a squash merge keeps the
+  branch's `Behaviour-Allow:` and `Behaviour-Harness:` lines in the trailer
+  block at the end of the squashed message** - GitHub's default message strings
+  each commit's message into a list, where they are no longer trailers. Its
+  first base is made by dispatching it once with a base, as its header says.
 - **Show a new assertion failing before you trust it.** Run it against the code
   as it was before your change, and put what it reported in the pull request. A
   test that has only ever passed has not been shown to test anything, and
@@ -259,7 +365,8 @@ is committed under `.claude/`:
 | `.claude/commands/adversarial.md` | the prompt the pre-PR pass is given, and the classes it attacks |
 
 The guard stands down inside the dev container, where running `uv` and `yarn` is
-the whole idea. If it refuses something this repository actually asks for, that
+the whole idea. Where `SR_ISOLATED=1` is set it stands down for the toolchain
+rules only. If it refuses something this repository actually asks for, that
 is a bug in the guard: add the case to the test and fix it rather than working
 around it.
 
@@ -499,8 +606,9 @@ fields, or into `NOT_BROWSABLE`, in the pull request that adds it -
 A comment from a session goes up under somebody's account, and is read by
 colleagues.
 
-- **Answer what was asked, and stop.** #796 asked for one file and got a whole
-  data model back: "please do not conflate this with #773".
+- **Answer what was asked, and stop.** A request for one file answered with a whole
+  data model mixes the question with others the asker is keeping apart, and they
+  then have to say so before they can read the answer.
 - **Write in [ASD-STE100](https://www.asd-ste100.org/) (Simplified Technical
   English).** This rule applies to pull request descriptions, to comments on issues
   and pull requests, and to commit messages. Use these rules:

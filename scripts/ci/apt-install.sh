@@ -27,10 +27,11 @@
 # does not help with: three retries all crawl, and eight jobs across two pull requests were
 # re-run, one of them cancelled at thirty minutes with apt still going.
 #
-# So the mirror is a list rather than a choice. The runner is an EC2 instance (see the
-# `runs-on` labels in .github/workflows/build.yml), and the archive mirror inside the region
-# is both the closest one and the one Canonical's load does not reach - so it is tried first,
-# and what the runner image shipped with is the fallback.
+# So the mirror is a list rather than a choice. On an EC2 instance - the ASF's self-hosted
+# runners are - the archive mirror inside the region is both the closest one and the one
+# Canonical's load does not reach, so it is tried first, and what the runner image shipped with
+# is the fallback. A GitHub-hosted runner, which is what .github/workflows/ asks for, is not one,
+# and where no region is found the image's own sources are used as they are.
 set -eu
 
 if [ "$#" -eq 0 ]; then
@@ -98,12 +99,16 @@ fill_cache() {
 # The region this instance is in, if it is an instance at all. IMDSv2 wants a token first,
 # and both calls are given two seconds: this is an optimisation, and a metadata service that
 # is not there or not answering means there is no mirror to prefer, not that the run fails.
+# `-f`, and a region spelled as AWS spells one: another cloud's metadata service can listen on
+# the same address, and an error page it answers with must not be read as a region, which
+# would point apt at a host that does not exist.
 ec2_region() {
-    token=$(curl -sS -m 2 -X PUT http://169.254.169.254/latest/api/token \
+    token=$(curl -fsS -m 2 -X PUT http://169.254.169.254/latest/api/token \
         -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' 2>/dev/null) || return 1
     [ -n "$token" ] || return 1
-    curl -sS -m 2 -H "X-aws-ec2-metadata-token: $token" \
-        http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null
+    found=$(curl -fsS -m 2 -H "X-aws-ec2-metadata-token: $token" \
+        http://169.254.169.254/latest/meta-data/placement/region 2>/dev/null) || return 1
+    printf '%s\n' "$found" | grep -Ex '[a-z]{2}(-[a-z]+)+-[0-9]+' || return 1
 }
 
 # The cache first: it is the only path here that touches no network at all.

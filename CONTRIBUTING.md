@@ -118,6 +118,34 @@ Without VS Code or Compose, `make container-keep` starts the dev server in a
 detached container on <http://localhost:8080>, and `make container-stop` takes
 it away. It needs a `config.yaml` (step 2).
 
+#### A disposable environment
+
+In an environment that is thrown away whole - a virtual machine or sandbox with a
+filesystem of its own and none of your credentials - the toolchain may run without a
+container. Set `SR_ISOLATED=1` in the environment the agent starts in: in the
+template the environment is built from, or failing that in the managed settings,
+as root, while the template is built:
+
+```sh
+f=/etc/claude-code/managed-settings.json
+jq '.env.SR_ISOLATED = "1"' "$f" > "$f.new" && mv "$f.new" "$f"
+chmod 644 "$f"
+```
+
+Check it in a new instance: `env | grep SR_ISOLATED` must print `SR_ISOLATED=1`.
+Then the `make container-*` and `make e2e-*` commands run in the checkout without a
+container, and the Bash guard stops refusing the toolchain (see
+[AGENTS.md](AGENTS.md)).
+
+Do not set it in a command, or in a repository file the agent can edit. The guard
+refuses a command line that names `SR_ISOLATED`, unless the command only reads text
+(`git commit`, `grep`, `echo`). That stops a mistake and not a determined agent: a
+script written to a file and run, a name a command substitution prints, and a name
+built from pieces are not seen. A variable the agent can set is not a boundary.
+
+The box needs `python3` (3.12+), `uv`, `git`, `jq`, `corepack` (then `make init`),
+and for the e2e suite `node` and the system libraries Chromium runs on.
+
 ## Architecture Overview
 
 | Layer | Technology | Location |
@@ -498,10 +526,13 @@ the ratchet holds down.
 | `make check` | Run all pre-commit hooks |
 | `make lint` | Run svelte-check and eslint over the frontend |
 | `make test` | Run pytest and vitest (parallel; `PYTEST_WORKERS=1` for serial) |
-| `make verify` | `check`, `lint`, `test` and `quality`, behind one exit code |
+| `make verify` | `check`, `lint`, `test`, `snapshot` and `quality`, behind one exit code |
 | `make quality` | Check the quality ratchet against the measured merge base |
 | `make quality-show` | Print the current readings, worst first |
 | `make quality-base` | Measure the merge base, into `state/quality-base.json` |
+| `make snapshot` | Record what the app answers, and compare it with the recorded merge base |
+| `make snapshot-base` | Record what the merge base answers, into `state/behaviour-base` |
+| `make snapshot-full` | Both, recording everything whatever the change reaches |
 | `make sync` | Install frozen production dependencies |
 | `make sync-dev` | Install all dependencies including dev tools |
 | `make certs` | Generate SSL certificates with mkcert |
@@ -511,6 +542,8 @@ the ratchet holds down.
 | `make container-test-py314` | Run the tests against Python 3.14 |
 | `make container-quality` | Run the quality ratchet in the container, from the host |
 | `make container-quality-base` | Measure the merge base in the container, from the host |
+| `make container-snapshot` | Record and compare what the app answers in the container, from the host |
+| `make container-snapshot-base` | Record what the merge base answers in the container, from the host |
 | `make e2e-test` | Run Playwright with app and browser both containerised |
 | `make e2e-test-host` | The same suite directly on the host (escape hatch) |
 | `make container-shell` | Open a shell in the dev container |

@@ -17,14 +17,14 @@ env:
   QUALITY_PY_VERSION: '3.13'
   UV_VERSION: '0.12.2'
 
+# Every job runs on a GitHub-hosted runner, on an image named outright: `ubuntu-24.04` rather than
+# `ubuntu-latest`, so that the image moving under a job is a change to this file and not a red run
+# nobody caused. A job that asks for the labels of the ASF's self-hosted runners waits for one, and
+# here none came, so every such job was cancelled unstarted. A hosted runner has four cores, which is what
+# `-n auto` and BEHAVIOUR_WORKERS below are sized to.
 jobs:
   test:
-    runs-on: &infra-runner
-      - runs-on=${{ github.run_id }}
-      - cpu=8
-      - family=c7i
-      - image=ubuntu24-full-x64
-      - tag=infra
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -120,8 +120,88 @@ jobs:
           path: state/quality-readings.json
           key: quality-python-coverage-${{ github.sha }}
 
+  # What the app answers - every GET route as each reader, and what a fixed sequence of writes
+  # changes - recorded with the commit a pull request would merge into and with the pull request,
+  # and compared file by file (scripts/ci/behaviour.py). Nothing is committed. As with the quality
+  # ratchet, the base comes from the run on main that produced that commit, through the actions
+  # cache, and is recorded here on a miss. A difference fails unless a commit the branch adds
+  # carries a `Behaviour-Allow:` trailer naming it. One interpreter rather than the matrix: the
+  # record is of the app, and both sides are recorded alike.
+  behaviour:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # a runner to itself: one part at a time per core, of the four a hosted runner has
+      BEHAVIOUR_WORKERS: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The whole history: the base is `HEAD^1`, and the trailers on the commits between it and
+          # here are read, which a shallow clone cannot walk.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Work out the base commit
+        id: base
+        run: echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the base record
+        id: base-cache
+        if: github.event_name != 'push'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            state/behaviour-base
+            state/behaviour-base.behaviour-record.json
+            state/behaviour-base.executed.json
+          key: behaviour-record-${{ steps.base.outputs.sha }}
+
+      - name: Record the base, when the cache had none
+        if: github.event_name != 'push' && steps.base-cache.outputs.cache-hit != 'true'
+        run: uv run scripts/ci/behaviour.py base --ref "${{ steps.base.outputs.sha }}"
+
+      - name: Record this change, and compare
+        id: compare
+        if: github.event_name != 'push'
+        run: uv run scripts/ci/behaviour.py check --ref "${{ steps.base.outputs.sha }}"
+
+      # Whatever the verdict: a difference that fails the check is the one most worth reading.
+      - name: Keep the difference for the reviewer
+        if: ${{ !cancelled() && steps.compare.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: behaviour
+          path: state/behaviour.diff
+          if-no-files-found: ignore
+
+      - name: Record main, for the branches to compare against
+        if: github.event_name == 'push'
+        run: uv run scripts/ci/behaviour.py record --out state/behaviour-base
+
+      - name: Save it for them
+        if: github.event_name == 'push'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            state/behaviour-base
+            state/behaviour-base.behaviour-record.json
+            state/behaviour-base.executed.json
+          key: behaviour-record-${{ github.sha }}
+
   frontend:
-    runs-on: *infra-runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -203,7 +283,7 @@ jobs:
   # The two coverage meters are absent by design: they need a suite to have run, so they
   # live in the jobs above that run one. This job skips them for want of a report.
   quality:
-    runs-on: *infra-runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       # The checkout comes first now: what installs the packages is a script in this
@@ -278,7 +358,7 @@ jobs:
           key: quality-counts-${{ github.sha }}
 
   e2e:
-    runs-on: *infra-runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       # The checkout comes first now: what installs the packages is a script in this
@@ -353,3 +433,33 @@ jobs:
           path: e2e/screenshots/
           if-no-files-found: ignore
           retention-days: 14
+
+  # What a deployment installs is `requirements.txt`, which is exported without the dependency groups.
+  # The jobs above install the `test` group as well, so a package that only that group declares is
+  # present in every one of them and absent in production, where the server fails to start on its
+  # first import. This job installs the file alone and imports the application from it.
+  production-install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      # `--no-deps`: the file lists every package, pinned, so resolving anything else would hide what it lacks.
+      - name: Install requirements.txt alone
+        run: |
+          uv venv --python 3.12 "$RUNNER_TEMP/production"
+          uv pip install --python "$RUNNER_TEMP/production/bin/python" --no-deps -r requirements.txt
+
+      - name: Import the application
+        run: '"$RUNNER_TEMP/production/bin/python" -I scripts/ci/production_import.py'

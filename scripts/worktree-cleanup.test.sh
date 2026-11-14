@@ -65,7 +65,8 @@ nothing_removed() {
 }
 
 # A repository, its remote, and worktrees: finished and pushed, a commit only here,
-# uncommitted work, locked, holding only conmon's oom marker, and one removed behind git's back.
+# uncommitted work, locked, holding only conmon's oom marker and what make writes again, and one
+# removed behind git's back.
 setup() {
     rm -rf "$work/remote.git" "$work/repo" "$work"/repo-* "$work/stub"
     mkdir -p "$work/stub"
@@ -74,7 +75,7 @@ setup() {
     git init -q --bare "$work/remote.git"
     git init -q -b main "$work/repo"
     mkdir -p "$work/repo/scripts"
-    cp "$here/checkout-id.sh" "$here/checkout-resources.sh" "$here/worktree-done.sh" \
+    cp "$here/checkout-id.sh" "$here/checkout-resources.sh" "$here/worktree-done.sh" "$here/worktree-held.sh" \
         "$here/container-gc.sh" "$work/repo/scripts/"
     (
         cd "$work/repo"
@@ -96,7 +97,7 @@ setup() {
     (cd "$work/repo-local" && git commit -q --allow-empty -m "only here")
     echo work > "$work/repo-dirty/notes.txt"
     : > "$work/repo-oomonly/oom"
-    mkdir -p "$work/repo-oomonly/state" && echo ignored > "$work/repo-oomonly/state/x"
+    mkdir -p "$work/repo-oomonly/state" && echo ignored > "$work/repo-oomonly/state/quality-base.json"
     rm -rf "$work/repo-deleted"
 
     for wt in pushed local dirty locked deleted; do
@@ -192,7 +193,7 @@ git -C "$work/repo" rev-parse --verify -q feat/local >/dev/null || fail "a branc
 grep -q 'kept branch feat/local' "$work/out" || fail "keeping the branch was not said: $(cat "$work/out")"
 
 run "$work/repo/scripts/worktree-done.sh" "$work/repo-oomonly"
-[ "$status" -eq 0 ] || fail "a worktree holding only conmon's oom marker and ignored files was refused: $(cat "$work/out")"
+[ "$status" -eq 0 ] || fail "a worktree holding only conmon's oom marker and regenerable ignored files was refused: $(cat "$work/out")"
 
 # Each refusal removes nothing at all, not merely fails.
 for case in "repo-dirty:a worktree with uncommitted work" "repo-locked:a locked worktree" \

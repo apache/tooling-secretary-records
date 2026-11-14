@@ -35,6 +35,17 @@ That tests the branch itself rather than its merge with `main`, which is a
 different question - and the more useful one while the branch is stacked or
 conflicted, since the merge is exactly what does not exist yet.
 
+## Every job waits for a runner, and is cancelled
+
+The checks are listed, and each sits at "queued" until it is cancelled, without a
+step having run. Read `runs-on` in the workflow: a job runs only where a runner
+answers to every label it names. Every job here names one GitHub-hosted image,
+`ubuntu-24.04`, which any public repository has. A job that names the labels of the
+ASF's self-hosted runners instead - `runs-on=${{ github.run_id }}`, `tag=infra` and
+the rest, as BAT's workflows do - waits for a runner that this repository is not
+given, and is cancelled when its time runs out. A workflow copied from BAT keeps
+those labels until somebody changes them.
+
 ## The quality job says every meter is unmeasured
 
 Measuring the base failed. The ratchet compares against the commit your branch
@@ -350,15 +361,14 @@ The body opens with a warning rather than a finding:
 The review that follows is the degraded pass: it reads the diff hunks without the
 repository around them. It is worth reading - it still finds real defects - but expect
 it to raise things the surrounding code already answers, and to raise them again after
-you have said so. Six rounds across #818 and #826 asked twice for an `isinstance` guard
-sitting three lines above the hunk, and twice about an import that the module's
-`from __future__ import annotations` makes moot.
+you have said so: a guard sitting three lines above the hunk, or an import that the
+module's `from __future__ import annotations` makes moot.
 
 What it wants is `.github/workflows/copilot-code-review.yml`, whose
 `copilot-setup-steps` job names the runner. Without that file the review falls back to
-`ubuntu-latest`, which is billed through the account whose payments are blocked, so the
-job never starts - the same cause as the jobs in "A pull request has no checks at all",
-reached by a different road. The file puts it on the ASF infra runner instead.
+`ubuntu-latest`; the file names `ubuntu-24.04`, the image every check runs on. A review
+that still did not start is waiting for a runner, as in "Every job waits for a runner,
+and is cancelled" above.
 
 Two things about that file surprise people:
 

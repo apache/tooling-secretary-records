@@ -60,6 +60,38 @@ NODE_VOLUME="${SR_NODE_VOLUME:-secretary-records-node$suffix}"
 E2E_NODE_VOLUME="${SR_E2E_NODE_VOLUME:-secretary-records-e2e-node$suffix}"
 PORT=8099
 
+# Already inside a disposable environment (SR_ISOLATED=1): the suite runs on it directly,
+# as `make e2e-test-host` does, rather than in containers nested inside. The arguments
+# are Playwright's, as they are below, and are not put through make, which would split
+# `-g 'two words'` and run what follows a `;` in one.
+if [ "${SR_ISOLATED:-}" = 1 ]; then
+    PATH="$HOME/.local/bin:$PATH"
+    export PATH
+    cd "$repo_root"
+    # What the container path does: node_modules matched to the lockfile, and the assets built
+    # every time, since a bundle left from the last run is one the suite would run against
+    # while the source has moved on. Not `make e2e-test-host`, which builds them only when
+    # there is no manifest, and whose recipe cannot take arguments safely. All of it inside
+    # the status below, so that a failed install ends in the line a pipe can read.
+    status=0
+    (
+        sh "$script_dir/ensure-node-modules.sh" "$repo_root/assets" &&
+            (cd assets && yarn build) &&
+            rm -rf state-e2e &&
+            cd e2e &&
+            npm install --no-audit --no-fund &&
+            npx playwright install chromium &&
+            npx playwright test "$@"
+    ) || status=$?
+    # The verdict on stdout as well: an exit status does not survive a pipe.
+    if [ "$status" -eq 0 ]; then
+        echo "e2e: PASSED"
+    else
+        echo "e2e: FAILED - exited $status, and the suite above did not pass"
+    fi
+    exit "$status"
+fi
+
 if [ -n "${SR_RUNTIME:-}" ]; then
     runtime="$SR_RUNTIME"
 elif command -v podman >/dev/null 2>&1; then

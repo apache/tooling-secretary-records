@@ -9,9 +9,10 @@
 # so, since the worktree going does not take them.
 #
 # Refuses, removing nothing, unless the path is the top of a linked worktree of this
-# repository that is not locked, whose `git status` answers and is clean, and which is not
-# on a detached HEAD holding commits nothing else does. Git removes the worktree before
-# anything else goes, and itself refuses one that is not clean.
+# repository that is not locked, holds no other worktree, whose `git status` answers and is
+# clean, which holds nothing of what worktree-held.sh finds, and which is not on a detached
+# HEAD holding commits nothing else does. Git removes the worktree before anything else
+# goes, and itself refuses one that is not clean.
 #
 # Environment: SR_RUNTIME as in container.sh.
 
@@ -22,6 +23,8 @@ script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$script_dir/checkout-id.sh"
 # shellcheck source=scripts/checkout-resources.sh
 . "$script_dir/checkout-resources.sh"
+# shellcheck source=scripts/worktree-held.sh
+. "$script_dir/worktree-held.sh"
 
 refuse() {
     echo "$1: nothing was removed" >&2
@@ -47,7 +50,11 @@ entry=$(awk -v w="worktree $physical" '
     /^worktree / { n++; this = ($0 == w) }
     this { print (n == 1 ? "primary" : "linked"); if ($1 == "locked") print "locked" }
 ' "${TMPDIR:-/tmp}/worktree-done.$$")
+# A worktree inside this one - .claude/worktrees/ is where Claude Code keeps its own - is not seen
+# by this one's status (it is ignored), and git removes it with this one, changes and all.
+nested=$(awk -v p="worktree $physical/" 'index($0, p) == 1 { print substr($0, 10) }' "${TMPDIR:-/tmp}/worktree-done.$$")
 rm -f "${TMPDIR:-/tmp}/worktree-done.$$"
+[ -z "$nested" ] || refuse "$worktree holds the worktree $(printf '%s' "$nested" | head -n 1)"
 case "$entry" in
     '') refuse "$worktree is not a worktree of $primary" ;;
     primary*) refuse "$worktree is the primary checkout" ;;
@@ -57,12 +64,27 @@ esac
 
 # `oom` is conmon's marker that a container from here hit its memory cap
 # (docs/troubleshooting.md): a fact about a run, not work anybody wrote.
-status=$(git -C "$worktree" status --porcelain) || refuse "git status failed in $worktree"
+# --untracked-files=normal: with status.showUntrackedFiles=no, an untracked file would not show, and
+# git's own check in `worktree remove` would let it go too
+status=$(git -C "$worktree" status --porcelain --untracked-files=normal) || refuse "git status failed in $worktree"
 changes=$(printf '%s\n' "$status" | grep -v '^?? oom$' || true)
 if [ -n "$changes" ]; then
     echo "$worktree has changes:" >&2
     printf '%s\n' "$changes" | sed 's/^/  /' >&2
     refuse "$worktree is not clean"
+fi
+
+# What status does not show, and git removes with the worktree all the same.
+hidden=$(held_hidden_edits "$worktree")
+[ "$hidden" -eq 0 ] || refuse "$worktree has $hidden tracked file(s) marked skip-worktree or assume-unchanged"
+gitdir=$(git -C "$worktree" rev-parse --path-format=absolute --git-dir) || refuse "git could not find the git dir of $worktree"
+op=$(held_operation "$gitdir")
+[ -z "$op" ] || refuse "$worktree has a git operation under way ($op)"
+held=$(held_ignored "$worktree")
+if [ -n "$held" ]; then
+    echo "$worktree holds ignored files the toolchain does not write again:" >&2
+    printf '%s\n' "$held" | sed 's/^/  /' >&2
+    refuse "move or delete them first"
 fi
 
 branch=$(git -C "$worktree" symbolic-ref --quiet --short HEAD || true)

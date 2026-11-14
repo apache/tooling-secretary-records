@@ -174,7 +174,17 @@ repos:
       entry: scripts/worktree-cleanup.test.sh
       language: system
       pass_filenames: false
-      files: '^scripts/(worktree-done|container-gc|checkout-resources|checkout-id|seed-volumes|worktree-cleanup)'
+      files: '^scripts/(worktree-done|worktree-held|container-gc|checkout-resources|checkout-id|seed-volumes|worktree-cleanup)'
+    - id: worktree-sweep
+      name: The sweep finishes only worktrees whose work was merged, and leaves the rest
+      # scripts/worktree-sweep.sh decides which worktrees are over and hands them to
+      # worktree-done.sh. A branch gone from origin can be one never pushed, and a squash merge
+      # leaves no ancestry, so what it must keep - changes, work in use, work merged at another
+      # head - is what this holds.
+      entry: scripts/worktree-sweep.test.sh
+      language: system
+      pass_filenames: false
+      files: '^scripts/(worktree-sweep|worktree-held|worktree-done|checkout-resources|checkout-id)'
     - id: pr-preflight-scan
       name: The preflight scan says none only when it looked
       # scripts/pr-preflight.sh answers `none` to who else is in these files, which a

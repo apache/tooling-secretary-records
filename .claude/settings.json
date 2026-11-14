@@ -4,6 +4,8 @@
       "Bash(make container-check:*)",
       "Bash(make container-quality:*)",
       "Bash(make container-quality-base:*)",
+      "Bash(make container-snapshot:*)",
+      "Bash(make container-snapshot-base:*)",
       "Bash(make container-test:*)",
       "Bash(make container-test-coverage:*)",
       "Bash(make container-test-py314:*)",

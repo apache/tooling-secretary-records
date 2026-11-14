@@ -1,16 +1,8 @@
 # The runner Copilot's code review runs on.
 #
-# Without this file the review falls back to `ubuntu-latest`, which is billed through the
-# account whose payments are blocked, so the job never starts. What lands then is not a
-# failure anybody sees: the review still arrives, headed "Copilot couldn't run its full
-# agentic review because it didn't start before the timeout", and a degraded pass reads the
-# diff hunks without the repository around them. On BAT's #818 and #826 that produced findings
-# about a guard three lines above the hunk, and about an import the module's
-# `from __future__ import annotations` already answers - twice each, across six rounds.
-#
-# The same move as BAT's `3067c857` and `3f436ba1`, which put `build.yml` and `analyze.yml` on the
-# ASF infra runner for the same reason. The labels are build.yml's, minus the size: this job
-# prepares an environment rather than running the suite.
+# Without this file the review falls back to `ubuntu-latest`. This names the same pinned image every
+# job in build.yml and analyze.yml runs on, so that the review sees the image the checks do, and an
+# image move is a change made here rather than one that happens to the review unannounced.
 #
 # Only `steps`, `permissions`, `runs-on`, `services`, `snapshot` and `timeout-minutes` are
 # read from the job below, and only from the copy on the default branch - a change here does
@@ -36,12 +28,7 @@ jobs:
   # Named for Copilot, which looks for this job and ignores the rest of the file. Renaming it
   # puts the review back on ubuntu-latest, in silence.
   copilot-setup-steps:
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - cpu=4
-      - family=c7i
-      - image=ubuntu24-full-x64
-      - tag=infra
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -50,4 +37,4 @@ jobs:
       # this repository runs everything else through is a container the review has no use for.
       # A job needs a step, so this is the step.
       - name: Ready
-        run: echo "Copilot code review runs on the infra runner"
+        run: echo "Copilot code review runs on ubuntu-24.04"

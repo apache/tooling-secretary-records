@@ -15,12 +15,7 @@ env:
 
 jobs:
   analyze:
-    runs-on:
-      - runs-on=${{ github.run_id }}
-      - cpu=8
-      - family=c7i
-      - image=ubuntu24-full-x64
-      - tag=infra
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       # The checkout comes first now: what installs the packages is a script in this

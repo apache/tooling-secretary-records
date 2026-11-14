@@ -1,8 +1,8 @@
 .PHONY: init build certs check dev dev-server e2e-test e2e-test-host e2e-quick e2e-typecheck lint run sync \
-	sync-dev test test-coverage pytest verify quality quality-show quality-base \
+	sync-dev test test-coverage pytest verify quality quality-show quality-base snapshot snapshot-base snapshot-full \
 	container-check container-test container-test-coverage container-test-py314 \
 	container-pytest container-verify container-quality container-quality-base \
-	container-shell container-keep container-stop
+	container-snapshot container-snapshot-base container-snapshot-full container-shell container-keep container-stop
 
 HOME ?= /home/$(USER)
 YARN ?= $(HOME)/.local/bin/yarn
@@ -78,13 +78,13 @@ pytest: PYTEST_WORKERS = 1
 pytest:
 	uv run pytest $(PYTEST_PARALLEL) $(ARGS)
 
-# Everything that gates a push, behind one exit code. Four commands is three chances to
+# Everything that gates a push, behind one exit code. Five commands is four chances to
 # run only some of them, and the one skipped is the one that fails in CI.
 #
 # The end-to-end suite is deliberately not in here: it takes 8 to 15 minutes against the
 # seconds these take, and it answers a different question. Run `make e2e-test` when the
 # change touches what a browser sees.
-verify: check lint test quality
+verify: check lint test snapshot quality
 
 # Coverage instrumentation slows the run down noticeably, so it is kept out of
 # the default `test` target and run separately on demand. Serial: coverage
@@ -121,6 +121,30 @@ quality-show:
 
 quality-base:
 	uv run scripts/ci/quality.py base --ref $(QUALITY_REF) --out $(QUALITY_BASE)
+
+# --- What the app answers ----------------------------------------------------
+#
+# Every GET route as each reader is answered, and what a fixed sequence of writes changes,
+# recorded with this checkout and with the commit it would merge into, and compared file by
+# file. Nothing is committed: `snapshot-base` records the merge base into state/, in a
+# throwaway worktree with that commit's own tests/behaviour, and `snapshot` records this
+# checkout and compares. A difference fails unless one of this branch's own commits carries a
+# `Behaviour-Allow: <path or glob>` trailer, and a change to the harness itself a
+# `Behaviour-Harness: <why>` one. `test` does not run it - it needs the hash seed fixed before
+# the interpreter starts, which scripts/ci/behaviour.py sees to. Run the base again after a
+# rebase. `snapshot` records only the parts of the record the change can reach;
+# `snapshot-full` records everything. See scripts/ci/behaviour.py.
+SNAPSHOT_REF ?= origin/main
+
+snapshot:
+	uv run scripts/ci/behaviour.py check --ref $(SNAPSHOT_REF)
+
+snapshot-base:
+	uv run scripts/ci/behaviour.py base --ref $(SNAPSHOT_REF)
+
+snapshot-full:
+	uv run scripts/ci/behaviour.py base --ref $(SNAPSHOT_REF)
+	uv run scripts/ci/behaviour.py check --full --ref $(SNAPSHOT_REF)
 
 # Runs the Playwright end-to-end tests in containers (see e2e/README.md).
 e2e-test:
@@ -195,6 +219,16 @@ container-quality:
 container-quality-base:
 	scripts/container.sh make quality-base
 
+container-snapshot:
+	scripts/container.sh make snapshot SNAPSHOT_REF=$(SNAPSHOT_REF)
+
+container-snapshot-base:
+	scripts/container.sh make snapshot-base SNAPSHOT_REF=$(SNAPSHOT_REF)
+
+# The whole record, whatever the change reaches, against any commit:
+# `make container-snapshot-full SNAPSHOT_REF=<commit or branch>`.
+container-snapshot-full:
+	scripts/container.sh make snapshot-full SNAPSHOT_REF=$(SNAPSHOT_REF)
 
 # Reproduce a CI matrix version locally. SQLAlchemy's async engine only works on
 # 3.14 because we depend on greenlet directly, so this is worth being able to run.
