@@ -131,6 +131,28 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   repository's worktrees and the directories beside it - a second clone kept
   elsewhere is not one it can see.
 
+  **Start a session by finishing what earlier ones left.** `git fetch`, then
+
+  ```sh
+  scripts/worktree-sweep.sh          # which worktrees are finished, and why each other one is kept
+  scripts/worktree-sweep.sh --yes    # finishes each finished one with worktree-done.sh
+  ```
+
+  A worktree is finished when its HEAD is on `origin/main`, or a pull request
+  merged into `main` with its HEAD as the head - a squash merge leaves no
+  ancestry, and a branch gone from `origin` can as well be one never pushed. It
+  stays, whatever its work, when removing it could take something nobody
+  committed or something still running: changes or untracked files, an ignored
+  file the toolchain does not write again (`config.yaml`, anything hidden
+  through `info/exclude`), a rebase stopped half way, a worktree inside it, a
+  running container or process, a branch made from main with no commit of its
+  own yet, or use in the last six hours, since a session next door may be in it.
+  `state/` is not among them: it is the checkout's own scratch, deleted with it,
+  so keep what must last elsewhere. The script's header has the full list, and
+  `worktree-done.sh` refuses the same things when run by hand. Everything else is
+  listed with the reason it stays. A worktree kept for changes after its work
+  merged is usually a draft from before a rebase: look before you force it.
+
   Before a change that moves a lot of code — a split, an extraction, a rename
   across a module — find out who else is in it. Ask about **every file the branch
   touches**, not the one you set out to change, and ask against the merge base
