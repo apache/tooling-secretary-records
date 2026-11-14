@@ -19,7 +19,7 @@ guard="$here/guard-bash.sh"
 SR_GUARD_FORCE=1
 export SR_GUARD_FORCE
 
-# Every case below is a host unless it says otherwise, and this runs inside isx boxes whose
+# Every case below is a host unless it says otherwise, and this runs inside disposable VMs whose
 # own environment has SR_ISOLATED=1 - so it is taken out of what the guard inherits, and
 # put back for one case at a time by in_isolated.
 SR_ISOLATED=

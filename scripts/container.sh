@@ -23,8 +23,8 @@
 #   SR_PYTHON        run against this Python version instead of the image
 #                     default, using a throwaway venv (this is how the CI matrix
 #                     versions are reproduced locally)
-#   SR_ISOLATED      set to `1` where the whole environment is disposable (an isx
-#                     box): the command runs in this checkout directly, with no
+#   SR_ISOLATED      set to `1` where the whole environment is thrown away after use (a
+#                     disposable VM): the command runs in this checkout directly, with no
 #                     container. SR_TIMEOUT applies; SR_PYTHON, SR_DETACH and
 #                     SR_PORT are refused, since each needs a container of its own
 #   SR_RUNTIME       container runtime to use (default: podman, else docker)
