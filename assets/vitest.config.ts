@@ -18,6 +18,15 @@ export default defineConfig({
     }
   },
   test: {
+    // What a timeout here guards against is a hang, not slowness: a test that means to say how
+    // fast something is counts the work instead. vitest's own 5s for a test and 10s for a hook
+    // are a budget for the machine rather than for the code, and on a shared machine under load
+    // they fail tests that are only slow - a component file whose cases take a second each alone
+    // can take five times that in a gate run beside other sessions.
+    // Both projects inherit these (`extends: true`). Testing Library's `waitFor` and `findBy*`
+    // have a limit of their own, set to 5s for the same reason in `vitest.setup.ts`.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
     projects: [
       {
         extends: true,
