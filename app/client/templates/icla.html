@@ -1,0 +1,22 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+  Individual Contributor License Agreement
+{% endblock title %}
+
+{% block page_title %}
+  Individual Contributor License Agreement
+{% endblock page_title %}
+
+{% block content %}
+  <p class="sr-measure">
+    Before you can be given an Apache account, the Foundation needs your signed Individual Contributor
+    License Agreement (ICLA). Fill in the agreement here and sign it, and it reaches the Secretary. You can
+    also <a href="https://www.apache.org/licenses/contributor-agreements.html#submitting">send it by email</a>,
+    as before.
+  </p>
+  <p class="sr-measure">
+    Read <a href="https://www.apache.org/licenses/icla.pdf">the agreement itself</a> before you sign it.
+  </p>
+  <div id="icla-form" data-invitation="{{ invitation }}"></div>
+{% endblock content %}

@@ -27,6 +27,8 @@ logging:
   # If true: enable debug logging for all modules
   # If a list: enable debug for the named modules only.
   # (If a name starts with '.', this is prefixed with 'app')
+  # Not on an instance that keeps ICLA submissions: at debug, every statement is logged with its values,
+  # personal data included, and the log is not only the secretarial roles' to read.
   debug: false                                  # default: false (must be bool or list[str])
   file: ./state/secretary-records.log           # default: "secretary-records.log"
 
@@ -44,3 +46,10 @@ roles:
 # smtp:
 #   host: mail-relay.apache.org                 # required if this block is present
 #   port: 587                                   # default: 587
+
+# The ICLA submission form at /icla (REQUIREMENTS.md, F-101).
+icla:
+  deliver_to: secretary@apache.org              # default: secretary@apache.org
+  # the Roster's list of PMCs and podlings the form offers; leave it out to offer a text field alone
+  # projects_url: https://agenda.apache.org/api/roster/projects
+  submissions_per_hour: 5                       # from one address; default: 5

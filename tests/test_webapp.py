@@ -27,7 +27,7 @@ async def test_the_database_is_migrated_to_head_at_startup(running_app):
     async with db.session() as session:
         revision = (await session.execute(sqlalchemy.text("SELECT version_num FROM alembic_version"))).scalar_one()
 
-    assert revision == "0001"
+    assert revision == "0002"
 
 
 async def test_home_offers_a_sign_in_to_somebody_signed_out(running_app):
@@ -107,7 +107,7 @@ async def test_an_admin_sees_the_server_status_and_the_data_browser(authenticate
 
     status = await client.get("/admin/server-status")
     assert status.status_code == 200
-    assert "0001" in await status.get_data(as_text=True)
+    assert "0002" in await status.get_data(as_text=True)
 
     browser = await client.get("/admin/data")
     assert browser.status_code == 200

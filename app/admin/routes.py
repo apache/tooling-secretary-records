@@ -74,7 +74,7 @@ BROWSABLE: Final[dict[str, tuple[str, ...]]] = {}
 """Each table an admin may browse, with the columns shown. Name no column holding personal data: a
 name, an address, anything from a document."""
 
-NOT_BROWSABLE: Final[frozenset[str]] = frozenset()
+NOT_BROWSABLE: Final[frozenset[str]] = frozenset({"iclasubmission"})
 """The tables deliberately kept out of the browser, because what they hold is the secretarial team's."""
 
 
