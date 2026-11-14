@@ -127,9 +127,6 @@ class Scenario:
     clients: world.Clients
     recorder: Recorder
 
-    def as_reader(self, name: str) -> Any:
-        return self.clients.by_reader[name]
-
 
 async def run(scenario: Scenario) -> dict[str, bytes]:
     produced: dict[str, bytes] = {}
