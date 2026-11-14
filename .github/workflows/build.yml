@@ -17,14 +17,14 @@ env:
   QUALITY_PY_VERSION: '3.13'
   UV_VERSION: '0.12.2'
 
+# Every job runs on a GitHub-hosted runner, on an image named outright: `ubuntu-24.04` rather than
+# `ubuntu-latest`, so that the image moving under a job is a change to this file and not a red run
+# nobody caused. A job that asks for the labels of the ASF's self-hosted runners waits for one, and
+# here none came, so every such job was cancelled unstarted. A hosted runner has four cores, which is what
+# `-n auto` below is sized to.
 jobs:
   test:
-    runs-on: &infra-runner
-      - runs-on=${{ github.run_id }}
-      - cpu=8
-      - family=c7i
-      - image=ubuntu24-full-x64
-      - tag=infra
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -48,7 +48,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
 
@@ -121,7 +121,7 @@ jobs:
           key: quality-python-coverage-${{ github.sha }}
 
   frontend:
-    runs-on: *infra-runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -203,7 +203,7 @@ jobs:
   # The two coverage meters are absent by design: they need a suite to have run, so they
   # live in the jobs above that run one. This job skips them for want of a report.
   quality:
-    runs-on: *infra-runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       # The checkout comes first now: what installs the packages is a script in this
@@ -223,7 +223,7 @@ jobs:
           python-version: ${{ env.QUALITY_PY_VERSION }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
 
@@ -278,7 +278,7 @@ jobs:
           key: quality-counts-${{ github.sha }}
 
   e2e:
-    runs-on: *infra-runner
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       # The checkout comes first now: what installs the packages is a script in this
@@ -292,7 +292,7 @@ jobs:
           python-version: '3.12'
 
       - name: Install uv
-        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
 
