@@ -1,0 +1,218 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+# What the app answers, recorded in full and compared with the last full record - the backstop for what a
+# pull request's selection did not run (scripts/ci/behaviour.py).
+#
+# A pull request records only the parts of the record its change can reach, read off which modules each
+# part ran. That misses what reaches behaviour without running a function: a module read only for a
+# constant two imports away, a file read at run time by a path. So every night main is recorded whole and
+# compared with the last commit that was, and a difference nothing in between allowed fails here, naming
+# the commits it came in with.
+#
+# Only when main has moved: a marker cache keyed on the commit makes a quiet
+# night cost a cache lookup. And on demand, with a base to compare against - a commit or a branch, which is
+# the same comparison `make container-snapshot-full SNAPSHOT_REF=...` runs locally.
+
+name: What the app answers, in full
+
+on:
+  schedule:
+    # 04:43 UTC, off the hour, before the working day in Europe and after it in the Americas
+    - cron: '43 4 * * *'
+  workflow_dispatch:
+    inputs:
+      base:
+        description: 'Compare with this commit or branch; empty: the last full run'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: '0.12.2'
+
+jobs:
+  full:
+    permissions:
+      contents: read
+      # the one issue a red night opens, or adds to
+      issues: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # a runner to itself: one part at a time per core, of the four a hosted runner has
+      BEHAVIOUR_WORKERS: 4
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # the whole history: the trailers on every commit since the last full run are read
+          fetch-depth: 0
+
+      # Lookup only: a hit says this commit was recorded in full and compared already.
+      - name: Whether main has moved since the last full run
+        id: marker
+        if: github.event_name == 'schedule'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          # the same paths as the save below: they are part of what a cache entry is looked up by
+          path: |
+            state/behaviour-base
+            state/behaviour-base.behaviour-record.json
+            state/behaviour-base.executed.json
+          key: behaviour-full-${{ github.sha }}
+          lookup-only: true
+
+      - name: Whether there is anything to do
+        id: run
+        env:
+          HIT: ${{ steps.marker.outputs.cache-hit }}
+        run: |
+          if [ "$HIT" = true ]; then
+              echo "main has not moved since it was last recorded in full"
+              echo "value=false" >> "$GITHUB_OUTPUT"
+          else
+              echo "value=true" >> "$GITHUB_OUTPUT"
+          fi
+
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        if: steps.run.outputs.value == 'true'
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        if: steps.run.outputs.value == 'true'
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        if: steps.run.outputs.value == 'true'
+        run: uv sync --frozen --no-dev
+
+      # The newest full record there is: `restore-keys` takes the most recent entry with the prefix.
+      - name: Fetch the last full record
+        id: last
+        if: steps.run.outputs.value == 'true' && inputs.base == ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            state/behaviour-base
+            state/behaviour-base.behaviour-record.json
+            state/behaviour-base.executed.json
+          key: behaviour-full-none
+          restore-keys: behaviour-full-
+
+      # Which commit last compared clean, kept apart from its record: a record is tens of megabytes and the
+      # first thing the cache lets go of; this is one line, read whenever the record is.
+      - name: Fetch the last commit that compared clean
+        id: passed
+        if: steps.run.outputs.value == 'true' && inputs.base == ''
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: state/behaviour-passed
+          key: behaviour-passed-none
+          restore-keys: behaviour-passed-
+
+      # Never a commit chosen for want of one: comparing with HEAD~1 would take whatever the last night
+      # missed as the new normal, and say nothing.
+      - name: Record the base asked for, or the last clean commit when its record is gone
+        if: steps.run.outputs.value == 'true' && (inputs.base != '' || steps.last.outputs.cache-matched-key == '')
+        env:
+          ASKED: ${{ inputs.base }}
+        run: |
+          base="$ASKED"
+          if [ -z "$base" ] && [ -s state/behaviour-passed ]; then
+              base=$(cat state/behaviour-passed)
+              echo "the last full record is gone: recording $base, the last commit that compared clean, again"
+          fi
+          if [ -z "$base" ]; then
+              echo "::error::There is no last full record and no last clean commit to record one from. Run this workflow with a base, the last commit known to answer as main should."
+              exit 1
+          fi
+          uv run scripts/ci/behaviour.py base --ref "$base"
+
+      - name: Record main in full, and compare
+        id: compare
+        if: steps.run.outputs.value == 'true'
+        # compared with the commit the base record is of: the last full run, or the one asked for
+        run: uv run scripts/ci/behaviour.py check --full --ref "$(jq -r .commit state/behaviour-base.behaviour-record.json)"
+
+      - name: Keep the difference for whoever reads the failure
+        if: ${{ !cancelled() && steps.compare.outcome != 'skipped' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: behaviour
+          path: state/behaviour.diff
+          if-no-files-found: ignore
+
+      # Only a commit that compared clean becomes the next night's base: one that differed stays failing
+      # until a commit allows the difference or undoes it, rather than being forgotten by the next run.
+      # A run dispatched with a base counts as well when it compares clean, and that is how the first base
+      # is made: the first night has no last record to compare with, so dispatch this once with a base -
+      # main itself, once the commit that brings the harness has merged - and every night after has one.
+      - name: This commit is the next full run's base
+        if: success() && steps.run.outputs.value == 'true'
+        run: |
+          rm -rf state/behaviour-base state/behaviour-base.behaviour-record.json state/behaviour-base.executed.json
+          mv state/behaviour-head state/behaviour-base
+          mv state/behaviour-head.behaviour-record.json state/behaviour-base.behaviour-record.json
+          mv state/behaviour-head.executed.json state/behaviour-base.executed.json
+
+      - name: Save it
+        if: success() && steps.run.outputs.value == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            state/behaviour-base
+            state/behaviour-base.behaviour-record.json
+            state/behaviour-base.executed.json
+          key: behaviour-full-${{ github.sha }}
+
+      - name: Remember it as the last commit that compared clean
+        if: success() && steps.run.outputs.value == 'true'
+        env:
+          SHA: ${{ github.sha }}
+        run: echo "$SHA" > state/behaviour-passed
+
+      - name: Save that too
+        if: success() && steps.run.outputs.value == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: state/behaviour-passed
+          key: behaviour-passed-${{ github.sha }}
+
+      # A red night nobody opens is no backstop: one issue says so, and each night it stays red adds to it.
+      - name: Say so in an issue
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          base=$(jq -r .commit state/behaviour-base.behaviour-record.json 2>/dev/null || echo unknown)
+          title="What the app answers, in full, differs on main"
+          body="The nightly full comparison failed over ${base:0:12}..${SHA:0:12}: $RUN"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$number" ]; then
+              gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
+          else
+              gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi

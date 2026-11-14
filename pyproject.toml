@@ -41,6 +41,9 @@ test = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.0.0",
     "pytest-xdist>=3.8",
+    # the behaviour record: the clock it is recorded on, and the import graph that says what a change reaches
+    "grimp>=3.19",
+    "time-machine>=3.6.0",
 ]
 dev = [
     "djlint>=1.40.3,<2",

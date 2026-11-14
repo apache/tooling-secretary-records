@@ -526,10 +526,13 @@ the ratchet holds down.
 | `make check` | Run all pre-commit hooks |
 | `make lint` | Run svelte-check and eslint over the frontend |
 | `make test` | Run pytest and vitest (parallel; `PYTEST_WORKERS=1` for serial) |
-| `make verify` | `check`, `lint`, `test` and `quality`, behind one exit code |
+| `make verify` | `check`, `lint`, `test`, `snapshot` and `quality`, behind one exit code |
 | `make quality` | Check the quality ratchet against the measured merge base |
 | `make quality-show` | Print the current readings, worst first |
 | `make quality-base` | Measure the merge base, into `state/quality-base.json` |
+| `make snapshot` | Record what the app answers, and compare it with the recorded merge base |
+| `make snapshot-base` | Record what the merge base answers, into `state/behaviour-base` |
+| `make snapshot-full` | Both, recording everything whatever the change reaches |
 | `make sync` | Install frozen production dependencies |
 | `make sync-dev` | Install all dependencies including dev tools |
 | `make certs` | Generate SSL certificates with mkcert |
@@ -539,6 +542,8 @@ the ratchet holds down.
 | `make container-test-py314` | Run the tests against Python 3.14 |
 | `make container-quality` | Run the quality ratchet in the container, from the host |
 | `make container-quality-base` | Measure the merge base in the container, from the host |
+| `make container-snapshot` | Record and compare what the app answers in the container, from the host |
+| `make container-snapshot-base` | Record what the merge base answers in the container, from the host |
 | `make e2e-test` | Run Playwright with app and browser both containerised |
 | `make e2e-test-host` | The same suite directly on the host (escape hatch) |
 | `make container-shell` | Open a shell in the dev container |

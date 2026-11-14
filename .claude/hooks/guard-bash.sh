@@ -943,7 +943,7 @@ make_assignment_refusal() {
             esac
             ;;
         # the SR_* names the scripts read, and no others: a pattern let `SR_X$(...)` and `SR_X!` through
-        KEEP_PORT | KEEP_NAME | PYTEST_WORKERS | QUALITY_REF | \
+        KEEP_PORT | KEEP_NAME | PYTEST_WORKERS | QUALITY_REF | SNAPSHOT_REF | \
             SR_APT_CACHE | SR_CONTAINER_NAME | SR_DETACH | SR_E2E | SR_E2E_EXTERNAL_SERVER | SR_E2E_HOST | \
             SR_E2E_NETWORK | SR_E2E_NODE_VOLUME | SR_E2E_SERVER | SR_E2E_URL | SR_IMAGE | SR_KEEP | \
             SR_MEMORY | SR_NODE_INSTALL | SR_NODE_VOLUME | SR_PLAYWRIGHT_IMAGE | SR_PORT | SR_PYTHON | \

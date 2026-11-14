@@ -62,7 +62,7 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
 
   | Command | What it runs |
   | ------- | ------------ |
-  | `make container-verify` | everything that gates a push - check, lint, test, quality - behind one exit code |
+  | `make container-verify` | everything that gates a push - check, lint, test, snapshot, quality - behind one exit code |
   | `make container-check` | the pre-commit hooks |
   | `make container-test` | pytest + vitest |
   | `make container-pytest ARGS='...'` | one question: `ARGS='tests/test_webapp.py -k login -q'`, serial |
@@ -70,6 +70,9 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   | `make container-test-py314` | the same as `container-test`, on the 3.14 CI matrix version |
   | `make container-quality` | the quality ratchet (complexity, dead code, duplication) |
   | `make container-quality-base` | measure the merge base the ratchet compares against |
+  | `make container-snapshot-base` | record what the app answers with the merge base |
+  | `make container-snapshot` | record it with this checkout, and compare |
+  | `make container-snapshot-full SNAPSHOT_REF=...` | the same, everything whatever the change reaches, against any commit |
   | `make e2e-test` | Playwright, app and browser both containerised |
   | `make e2e-quick FILTER=...` | one spec, reusing the app container (`SR_KEEP=1`) |
   | `make e2e-typecheck` | `tsc` over the specs, in seconds - running them checks nothing |
@@ -272,6 +275,65 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   It must be a real trailer, in the block at the end of the message — git decides
   that, so a commit that merely mentions `Quality-Allow:` grants nothing.
   [docs/quality-ratchet.md](docs/quality-ratchet.md) has the whole picture.
+- **What the app answers may not change unless a commit says it should.**
+  `tests/behaviour` records every GET route as each reader is answered, and
+  what a fixed sequence of writes through the API changes - every table, and
+  the pages the writes reach (`tests/behaviour/scenarios.py`) - all from the test
+  fixture, on a pinned clock. The fixture is synthetic (N-8), which is what lets
+  the difference be printed in a CI step summary and kept as an artifact; a record
+  made from anything else would publish it. The app has no route that writes yet, so that
+  sequence is empty: the change that adds the first write adds its step, and a
+  step for each reader it must refuse. Nothing of the record is committed: like
+  the quality ratchet, it is recorded with the commit the branch would merge
+  into and with the branch, and the two are compared file by file
+  (`scripts/ci/behaviour.py`). CI takes the base from the run on `main`;
+  locally you record it yourself:
+
+  ```sh
+  make container-snapshot-base   # once per pull; re-run after rebasing
+  make container-snapshot        # record this checkout, and compare
+  ```
+
+  A refactor leaves every file as it was. A difference there is the refactor
+  changing behaviour, and is fixed in the code. A change that is *meant* to
+  alter what the app answers names what it alters, in the trailer block of the
+  commit that alters it, and the pull request says why:
+
+  ```text
+  Behaviour-Allow: http/admin/*.txt
+  ```
+
+  The value is a path in the record or a glob over paths (`*` crosses `/`), never
+  a bare `*` or `**`; `state/behaviour.diff` has every difference to read before
+  writing one. A trailer that allows nothing that changed is reported, and only
+  the branch's own commits count - not a merge, nor a branch merged in.
+
+  A change to the harness itself - `tests/behaviour`, the suite's conftest and
+  fixture data, `scripts/ci/behaviour*.py`, `scripts/ci/trailers.py` - says why
+  with `Behaviour-Harness: <why>`, and changes nothing under `app/`: the harness
+  first, recorded against the app it has, then the change to the app, recorded
+  by the new harness. A branch doing both is not compared. The one exception is
+  the change that brings the harness, whose base has none: it records, and has
+  nothing to compare with. A new GET route fails the walk until
+  `tests/behaviour/routes.py` can fill its parameters; anything rewritten before
+  it is recorded is a named rule in `tests/behaviour/normalise.py`, with the
+  reason it could not be pinned and examples both ways. Do not add one to quiet a
+  difference a change made: a rule hides whatever it matches, from every later
+  change too.
+
+  A pull request records only the parts its change can reach - read off which
+  of `app/` each part ran, kept beside the base's record - and everything when
+  it touches what that cannot see: templates, static files, data, migrations,
+  the fixture, the harness, the dependencies, the Makefile, CI, or code that
+  runs at startup (`EVERYTHING_WHEN` in `scripts/ci/behaviour_selection.py`). The
+  `What the app answers, in full` workflow is the backstop: every night that main
+  has moved it records everything and compares it with the last full run,
+  failing with the commit range where something changed unallowed. It reads the
+  trailers of main's own commits for that, so **a squash merge keeps the
+  branch's `Behaviour-Allow:` and `Behaviour-Harness:` lines in the trailer
+  block at the end of the squashed message** - GitHub's default message strings
+  each commit's message into a list, where they are no longer trailers. Its
+  first base is made by dispatching it once with a base, as its header says.
 - **Show a new assertion failing before you trust it.** Run it against the code
   as it was before your change, and put what it reported in the pull request. A
   test that has only ever passed has not been shown to test anything, and

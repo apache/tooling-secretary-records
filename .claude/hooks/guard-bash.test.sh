@@ -190,6 +190,9 @@ refuse 'while make test; do :; done'
 refuse '! make test'
 # ...and what the docs write still passes: a trailing comment, a continued line, a runner's options
 allow 'make container-quality-base    # once per pull; re-run after rebasing'
+allow 'make container-snapshot-base   # once per pull; re-run after rebasing'
+allow 'make container-snapshot-full SNAPSHOT_REF=origin/main'
+refuse 'make container-snapshot SNAPSHOT_REF="$(touch x)"'
 allow 'make container-check  # the pre-commit hooks'
 allow "make container-pytest \\
   ARGS='tests/test_access.py -q'"
