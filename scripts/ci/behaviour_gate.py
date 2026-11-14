@@ -86,13 +86,44 @@ def too_broad(glob: str) -> bool:
     return not glob.strip("*?/")
 
 
+WILDCARDS: Final = "*?["
+
+
+def unanchored(glob: str) -> bool:
+    """A glob that names no directory: a wildcard before its first `/`, or no `/` at all. It reaches every
+    directory of the record, whichever files they happen to hold today - `*.txt` matches all of it here
+    only because every file ends so. A path written out, with no wildcard, is anchored by being one."""
+    if not any(character in glob for character in WILDCARDS):
+        return False
+    first, slash, _ = glob.partition("/")
+    return not slash or any(character in first for character in WILDCARDS)
+
+
 def allows_everything(glob: str, recorded: Iterable[str] = ()) -> bool:
-    """Whether `glob` allows every difference there could be: it names no part of a path, or it matches every
-    path the base record holds - `*.txt` does, since every file of the record ends in `.txt`. A path named
-    outright is never everything, even in a record of one file."""
+    """Whether `glob` allows every difference there could be: it names no part of a path, it names no
+    directory, or it matches every path the base record holds. A path named outright is never everything,
+    even in a record of one file."""
     paths = list(recorded)
-    wild = any(character in glob for character in "*?[")
-    return too_broad(glob) or (wild and bool(paths) and all(fnmatch.fnmatchcase(path, glob) for path in paths))
+    wild = any(character in glob for character in WILDCARDS)
+    return (
+        too_broad(glob)
+        or unanchored(glob)
+        or (wild and bool(paths) and all(fnmatch.fnmatchcase(path, glob) for path in paths))
+    )
+
+
+def _why_everything(glob: str, subject: str) -> str:
+    if too_broad(glob):
+        return f"`{ALLOW}: {glob}` ('{subject}') allows every difference; name the paths that change"
+    if unanchored(glob):
+        return (
+            f"`{ALLOW}: {glob}` ('{subject}') names no directory, and so can allow a difference anywhere; "
+            "name the directory: http/*.txt, not *.txt"
+        )
+    return (
+        f"`{ALLOW}: {glob}` ('{subject}') matches every file the base record holds, and so allows every "
+        "difference; name the paths that change"
+    )
 
 
 def touched(changed: list[str], globs: tuple[str, ...]) -> list[str]:
@@ -108,14 +139,7 @@ def refusals(
 ) -> list[str]:
     """Why the branch may not be compared at all, or nothing. `recorded` is every path of the base record."""
     paths = list(recorded)
-    reasons = [
-        f"`{ALLOW}: {glob}` ('{subject}') allows every difference; name the paths that change"
-        if too_broad(glob)
-        else f"`{ALLOW}: {glob}` ('{subject}') matches every file the base record holds, and so allows every "
-        "difference; name the paths that change"
-        for glob, subject in allowances
-        if allows_everything(glob, paths)
-    ]
+    reasons = [_why_everything(glob, subject) for glob, subject in allowances if allows_everything(glob, paths)]
     tools = touched(changed, HARNESS_FILES)
     if not tools:
         return reasons

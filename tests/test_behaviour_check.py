@@ -167,15 +167,32 @@ class TestGlobs:
     ]
     """The kinds of path a record holds: every one of them ends in `.txt`."""
 
-    @pytest.mark.parametrize("glob", ["*.txt", "*t", "*.*", "*x*"])
-    def test_a_glob_matching_every_recorded_path_is_refused(self, glob: str) -> None:
+    @pytest.mark.parametrize("glob", ["*.txt", "*t", "*.*", "*x*", "*/x.txt", "**/foo", "h*/x.txt", "?ttp/*"])
+    def test_a_glob_that_names_no_directory_is_refused(self, glob: str) -> None:
+        """A glob is anchored by a first path segment written out: without one it reaches every directory of
+        the record, whichever files it happens to hold today."""
         [reason] = gate.refusals([], [(glob, "why")], [], recorded=self.RECORD)
         assert reason == (
-            f"`Behaviour-Allow: {glob}` ('why') matches every file the base record holds, and so allows every "
+            f"`Behaviour-Allow: {glob}` ('why') names no directory, and so can allow a difference anywhere; "
+            "name the directory: http/*.txt, not *.txt"
+        )
+
+    @pytest.mark.parametrize("glob", ["*.txt", "*/x.txt"])
+    def test_a_glob_that_names_no_directory_is_refused_with_no_record_to_read(self, glob: str) -> None:
+        assert len(gate.refusals([], [(glob, "why")], [])) == 1
+
+    def test_a_glob_matching_every_recorded_path_is_still_refused(self) -> None:
+        """A record of one directory: a glob over it names the directory, and still allows everything."""
+        [reason] = gate.refusals([], [("http/*", "why")], [], recorded=["http/a.txt", "http/b/c.txt"])
+        assert reason == (
+            "`Behaviour-Allow: http/*` ('why') matches every file the base record holds, and so allows every "
             "difference; name the paths that change"
         )
 
-    @pytest.mark.parametrize("glob", ["http/*.txt", "http/admin/*", "routes.txt"])
+    @pytest.mark.parametrize(
+        "glob",
+        ["http/*.txt", "http/admin/*", "scenarios/*", "normalisation/*", "routes.txt", "http/index.txt"],
+    )
     def test_a_glob_naming_part_of_the_record_is_allowed(self, glob: str) -> None:
         assert gate.refusals([], [(glob, "why")], [], recorded=self.RECORD) == []
 
