@@ -36,6 +36,7 @@ import trailers
 
 if TYPE_CHECKING:
     import pathlib
+    from collections.abc import Iterable
 
 ALLOW: Final = "Behaviour-Allow"
 HARNESS: Final = "Behaviour-Harness"
@@ -85,16 +86,35 @@ def too_broad(glob: str) -> bool:
     return not glob.strip("*?/")
 
 
+def allows_everything(glob: str, recorded: Iterable[str] = ()) -> bool:
+    """Whether `glob` allows every difference there could be: it names no part of a path, or it matches every
+    path the base record holds - `*.txt` does, since every file of the record ends in `.txt`. A path named
+    outright is never everything, even in a record of one file."""
+    paths = list(recorded)
+    wild = any(character in glob for character in "*?[")
+    return too_broad(glob) or (wild and bool(paths) and all(fnmatch.fnmatchcase(path, glob) for path in paths))
+
+
 def touched(changed: list[str], globs: tuple[str, ...]) -> list[str]:
     return [path for path in changed if any(fnmatch.fnmatchcase(path, glob) for glob in globs)]
 
 
-def refusals(changed: list[str], allowances: list[tuple[str, str]], harness: list[tuple[str, str]]) -> list[str]:
-    """Why the branch may not be compared at all, or nothing."""
+def refusals(
+    changed: list[str],
+    allowances: list[tuple[str, str]],
+    harness: list[tuple[str, str]],
+    *,
+    recorded: Iterable[str] = (),
+) -> list[str]:
+    """Why the branch may not be compared at all, or nothing. `recorded` is every path of the base record."""
+    paths = list(recorded)
     reasons = [
         f"`{ALLOW}: {glob}` ('{subject}') allows every difference; name the paths that change"
-        for glob, subject in allowances
         if too_broad(glob)
+        else f"`{ALLOW}: {glob}` ('{subject}') matches every file the base record holds, and so allows every "
+        "difference; name the paths that change"
+        for glob, subject in allowances
+        if allows_everything(glob, paths)
     ]
     tools = touched(changed, HARNESS_FILES)
     if not tools:

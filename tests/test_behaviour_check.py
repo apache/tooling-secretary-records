@@ -28,6 +28,7 @@ import json
 import pathlib
 import subprocess
 import sys
+import typing
 
 import pytest
 
@@ -156,6 +157,27 @@ class TestGlobs:
         assert gate.refusals([], [("**", "everything")], []) == [
             "`Behaviour-Allow: **` ('everything') allows every difference; name the paths that change"
         ]
+
+    RECORD: typing.ClassVar[list[str]] = [
+        "routes.txt",
+        "normalisation/routes.txt",
+        "http/index.txt",
+        "http/admin/data.txt",
+        "scenarios/01-x.txt",
+    ]
+    """The kinds of path a record holds: every one of them ends in `.txt`."""
+
+    @pytest.mark.parametrize("glob", ["*.txt", "*t", "*.*", "*x*"])
+    def test_a_glob_matching_every_recorded_path_is_refused(self, glob: str) -> None:
+        [reason] = gate.refusals([], [(glob, "why")], [], recorded=self.RECORD)
+        assert reason == (
+            f"`Behaviour-Allow: {glob}` ('why') matches every file the base record holds, and so allows every "
+            "difference; name the paths that change"
+        )
+
+    @pytest.mark.parametrize("glob", ["http/*.txt", "http/admin/*", "routes.txt"])
+    def test_a_glob_naming_part_of_the_record_is_allowed(self, glob: str) -> None:
+        assert gate.refusals([], [(glob, "why")], [], recorded=self.RECORD) == []
 
 
 class TestHarnessChanges:
@@ -412,6 +434,17 @@ class TestCheck:
         recording(monkeypatch, {"a.txt": "2"})
         assert checked(repo, recorded_base(repo, sha, {"a.txt": "1"})) == expected
         assert "+2" in (repo / "state" / "behaviour.diff").read_text()
+
+    @pytest.mark.parametrize(("allowed", "expected"), [("*.txt", 1), ("http/*.txt", 0)])
+    def test_an_allowance_matching_the_whole_record_is_refused(
+        self, repo: pathlib.Path, monkeypatch: pytest.MonkeyPatch, allowed: str, expected: int
+    ) -> None:
+        sha = commit(repo, "harness", HARNESS)
+        git(repo, "checkout", "-q", "-b", "branch")
+        commit(repo, f"change\n\nBehaviour-Allow: {allowed}", {"app/x.py": "2"})
+        asked = recording(monkeypatch, {"http/a.txt": "2", "routes.txt": "r"})
+        assert checked(repo, recorded_base(repo, sha, {"http/a.txt": "1", "routes.txt": "r"})) == expected
+        assert len(asked) == (0 if expected else 1)
 
     def test_the_bootstrap_records_and_passes(self, repo: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         sha = commit(repo, "before", {"a": "1"})

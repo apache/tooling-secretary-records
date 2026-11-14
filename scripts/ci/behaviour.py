@@ -420,7 +420,9 @@ def check(
     changed = _changed_since(recorded.commit)
     allowances = gate.claims(gate.ALLOW, recorded.commit, ROOT)
     harness = gate.claims(gate.HARNESS, recorded.commit, ROOT)
-    refused = gate.refusals(changed, allowances, harness)
+    refused = gate.refusals(changed, allowances, harness, recorded=recorded.files)
+    # a full run goes on past a refusal, and an allowance of everything must not then allow everything
+    allowances = [(glob, why) for glob, why in allowances if not gate.allows_everything(glob, recorded.files)]
     if refused and not full:
         heading = "This branch is not compared:"
         print(heading + "\n" + "\n".join(f"  {reason}" for reason in refused))

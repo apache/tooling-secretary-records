@@ -304,8 +304,9 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   ```
 
   The value is a path in the record or a glob over paths (`*` crosses `/`), never
-  a bare `*` or `**`; `state/behaviour.diff` has every difference to read before
-  writing one. A trailer that allows nothing that changed is reported, and only
+  a bare `*` or `**`, and never one that matches every file the base record holds
+  (`*.txt` does, since every file of it ends so); `state/behaviour.diff` has every
+  difference to read before writing one. A trailer that allows nothing that changed is reported, and only
   the branch's own commits count - not a merge, nor a branch merged in.
 
   A change to the harness itself - `tests/behaviour`, the suite's conftest and
