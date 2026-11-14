@@ -91,7 +91,6 @@ jobs:
               echo "value=true" >> "$GITHUB_OUTPUT"
           fi
 
-
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         if: steps.run.outputs.value == 'true'
         with:
@@ -110,7 +109,7 @@ jobs:
       # The newest full record there is: `restore-keys` takes the most recent entry with the prefix.
       - name: Fetch the last full record
         id: last
-        if: steps.run.outputs.value == 'true' && inputs.base == ''
+        if: steps.run.outputs.value == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -121,15 +120,37 @@ jobs:
           restore-keys: behaviour-full-
 
       # Which commit last compared clean, kept apart from its record: a record is tens of megabytes and the
-      # first thing the cache lets go of; this is one line, read whenever the record is.
+      # first thing the cache lets go of; this is one line. Fetched on every run, a quiet night included: the
+      # cache drops an entry nobody has restored for seven days, and a quiet week would otherwise take this
+      # with the record, leaving nothing to record a base from.
       - name: Fetch the last commit that compared clean
         id: passed
-        if: steps.run.outputs.value == 'true' && inputs.base == ''
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: state/behaviour-passed
           key: behaviour-passed-none
           restore-keys: behaviour-passed-
+
+      # What this run compares with becomes the next night's base only where it is the last one, or where
+      # there is none: a run dispatched with any other base would otherwise clear a red night, by comparing
+      # main with itself and saving it as clean. With no last record and no last clean commit - the first
+      # run of all, or both evicted - a dispatched base is how one is made.
+      - name: Whether this run may make the next base
+        id: promote
+        if: steps.run.outputs.value == 'true'
+        env:
+          ASKED: ${{ inputs.base }}
+          LAST: ${{ steps.last.outputs.cache-matched-key }}
+        run: |
+          if [ -z "$ASKED" ]; then
+              echo "value=true" >> "$GITHUB_OUTPUT"
+          elif [ -z "$LAST" ] && [ ! -s state/behaviour-passed ]; then
+              echo "there is no last full record and no last clean commit: this run makes the first base"
+              echo "value=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "a base was asked for, and a last full run exists: this run compares and saves nothing"
+              echo "value=false" >> "$GITHUB_OUTPUT"
+          fi
 
       # Never a commit chosen for want of one: comparing with HEAD~1 would take whatever the last night
       # missed as the new normal, and say nothing.
@@ -165,11 +186,10 @@ jobs:
 
       # Only a commit that compared clean becomes the next night's base: one that differed stays failing
       # until a commit allows the difference or undoes it, rather than being forgotten by the next run.
-      # A run dispatched with a base counts as well when it compares clean, and that is how the first base
-      # is made: the first night has no last record to compare with, so dispatch this once with a base -
-      # main itself, once the commit that brings the harness has merged - and every night after has one.
+      # A run dispatched with a base counts only where it made the first base (see "Whether this run may make
+      # the next base"): dispatch it once with main itself as the base, after the harness merges.
       - name: This commit is the next full run's base
-        if: success() && steps.run.outputs.value == 'true'
+        if: success() && steps.run.outputs.value == 'true' && steps.promote.outputs.value == 'true'
         run: |
           rm -rf state/behaviour-base state/behaviour-base.behaviour-record.json state/behaviour-base.executed.json
           mv state/behaviour-head state/behaviour-base
@@ -177,7 +197,7 @@ jobs:
           mv state/behaviour-head.executed.json state/behaviour-base.executed.json
 
       - name: Save it
-        if: success() && steps.run.outputs.value == 'true'
+        if: success() && steps.run.outputs.value == 'true' && steps.promote.outputs.value == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -187,19 +207,21 @@ jobs:
           key: behaviour-full-${{ github.sha }}
 
       - name: Remember it as the last commit that compared clean
-        if: success() && steps.run.outputs.value == 'true'
+        if: success() && steps.run.outputs.value == 'true' && steps.promote.outputs.value == 'true'
         env:
           SHA: ${{ github.sha }}
         run: echo "$SHA" > state/behaviour-passed
 
       - name: Save that too
-        if: success() && steps.run.outputs.value == 'true'
+        if: success() && steps.run.outputs.value == 'true' && steps.promote.outputs.value == 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: state/behaviour-passed
           key: behaviour-passed-${{ github.sha }}
 
       # A red night nobody opens is no backstop: one issue says so, and each night it stays red adds to it.
+      # The issue is one this workflow opened, by its exact title: in a public repository anybody can open
+      # an issue whose title merely contains this one, and a night's failure must not land in it.
       - name: Say so in an issue
         if: failure() && github.event_name == 'schedule'
         env:
@@ -210,7 +232,9 @@ jobs:
           base=$(jq -r .commit state/behaviour-base.behaviour-record.json 2>/dev/null || echo unknown)
           title="What the app answers, in full, differs on main"
           body="The nightly full comparison failed over ${base:0:12}..${SHA:0:12}: $RUN"
-          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --author app/github-actions \
+              --search "\"$title\" in:title" --json number,title \
+              --jq "map(select(.title == \"$title\")) | .[0].number // empty")
           if [ -n "$number" ]; then
               gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body "$body"
           else
