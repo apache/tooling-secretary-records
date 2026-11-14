@@ -55,8 +55,10 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   to the book is made there first and copied here.
 - **Everything runs in a container.** All builds, linters, and tests run inside
   the dev container (Podman or Docker). Never install or run Python, Node,
-  `uv`, `pytest`, or `yarn` on the host. From a plain host shell, use the
-  wrapper targets rather than improvising `docker run` invocations:
+  `uv`, `pytest`, or `yarn` on the host - the machine that holds your
+  credentials and everything else you have. (A disposable environment is the
+  exception, below.) From a plain host shell, use the wrapper targets rather than
+  improvising `docker run` invocations:
 
   | Command | What it runs |
   | ------- | ------------ |
@@ -74,6 +76,25 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   | `make container-shell` | an interactive shell |
   | `make container-keep` | the app on the e2e fixtures, detached on :8080, for looking at by hand: sign in at `/e2e/login/<uid>?roles=...` |
   | `make container-stop` | takes that one away again |
+
+  **Where the whole environment is disposable - a throwaway virtual machine or
+  sandbox, say - the same commands run without the container.** The rule is about
+  what the toolchain can reach, and a box with a throwaway filesystem and no
+  credentials of yours answers it. Such an environment sets `SR_ISOLATED=1` in the
+  environment the agent is started in (see
+  [CONTRIBUTING.md](CONTRIBUTING.md#a-disposable-environment); not anything an
+  agent or a command line sets). With it, the table above works unchanged:
+  `scripts/container.sh` runs the command in the checkout, and the `e2e-*`
+  wrappers run Playwright and `tsc` on the box. The guard stops refusing `uv`,
+  `yarn`, `make check` and the like, and goes on holding every other rule here.
+  Three settings need a container of their own and are refused there rather than
+  run as something else: `SR_PYTHON` (so `make container-test-py314`), `SR_DETACH`
+  and `SR_PORT` (so `make container-keep`); run `scripts/run-dev.sh` for the app.
+  What exists only to bound a container does nothing there, and says nothing: the
+  memory cap, `SR_MEMORY`, `SR_CONTAINER_NAME`, `SR_KEEP`, and `make
+  container-stop`, which has nothing to stop. The deadline, `SR_TIMEOUT`, does
+  apply. What the box needs installed is listed in the same section of
+  [CONTRIBUTING.md](CONTRIBUTING.md#a-disposable-environment).
 
   The `container-*` rows go through `scripts/container.sh`, which gives each one a name, a
   memory cap and an hour's deadline: a command that hangs stops by itself, and one that
@@ -281,7 +302,8 @@ is committed under `.claude/`:
 | `.claude/commands/adversarial.md` | the prompt the pre-PR pass is given, and the classes it attacks |
 
 The guard stands down inside the dev container, where running `uv` and `yarn` is
-the whole idea. If it refuses something this repository actually asks for, that
+the whole idea. Where `SR_ISOLATED=1` is set it stands down for the toolchain
+rules only. If it refuses something this repository actually asks for, that
 is a bug in the guard: add the case to the test and fix it rather than working
 around it.
 

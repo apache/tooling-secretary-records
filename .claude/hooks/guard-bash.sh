@@ -25,6 +25,14 @@
 # presence is the same question as "am I already inside". SR_GUARD_FORCE=1 overrides
 # that, which is how guard-bash.test.sh exercises the guard from inside the container.
 #
+# A disposable environment that is not that container - a throwaway virtual machine, say -
+# says so with SR_ISOLATED=1, and there only the toolchain rules stand down: a box with a
+# throwaway filesystem has nothing to protect from `uv`, and everything else here (staging,
+# the stash, --no-verify, the byline on a posted body) is about the repository and its
+# colleagues, which the box does not change. The variable is read from the environment
+# this hook was started in, which the box sets, and never from the command it is judging:
+# `SR_ISOLATED=1 uv run x` on a host is `uv` on a host.
+#
 # It holds a rule against a lapse, not against somebody set on breaking it: it reads the shell
 # as far as the rules need and no further. Known to walk past it, and left so:
 #   - a redirection in front of the command word: `>out uv run pytest`
@@ -36,6 +44,10 @@
 # went from 34ms to 47ms.
 
 set -eu
+
+isolated() {
+    [ "${SR_ISOLATED:-}" = 1 ]
+}
 
 if [ "${SR_GUARD_FORCE:-}" != 1 ] && [ -d /run/secretary-records ]; then
     exit 0
@@ -737,6 +749,92 @@ check_gh() {
 AGENTS.md, \"Writing on an issue or a pull request\"."
 }
 
+# The container wrappers also read SR_ISOLATED, and the first word of
+# `SR_ISOLATED=1 scripts/container.sh make test` is the wrapper the container rule asks for.
+# Left alone, that is the toolchain on a host that said nothing of the kind. So where the
+# environment has not set it, a command may not.
+#
+# The ways of setting it are too many to list - `env`, `nice`, `sudo -u`, `bash -lc`, `eval`,
+# a `make` argument, a quoted name - and a list that omits one is a list that is walked past.
+# So the question is turned round: a part that names `SR_ISOLATED` at all is refused, unless
+# what it runs is something that only reads text, where the word is a message or a pattern
+# (`git commit -m`, `gh ... --body`, `grep`). The bare name and not `SR_ISOLATED=`, because
+# `SR_ISOLATED+=1`, `read SR_ISOLATED` and `printf -v SR_ISOLATED` set it without that text.
+# Quotes and backslashes are taken out first, so `"SR_ISOLATED=1"` and `SR_ISOLATED\=1` are
+# the same word as the bare one; `env -u SR_ISOLATED`, which asks for a container, is let by.
+# `git` and `gh` can run a shell - an alias, `-c core.pager=...`, `rebase -x`, `bisect run` -
+# so they count as readers for the subcommands that only read or write text, and for no
+# other (see `text_subcommand`). What this cannot see: a script written to a file
+# and run afterwards, a word that a command substitution prints (`env $(echo SR_ISOLATED=1)`),
+# which the guard reads as one opaque word everywhere - and reading inside one would refuse
+# every commit message that mentions the variable - and a name assembled from pieces.
+#
+# Whether a `git` or `gh` part ($1, the whole part) is a subcommand that only reads or
+# writes text. The options before the subcommand are read for what they are: `-C` takes a
+# path, `-c` and `--config-env` run configuration, which can name a shell. `gh`'s `alias`,
+# `extension` and `config` are not in the list.
+text_subcommand() {
+    set -f
+    # shellcheck disable=SC2086  # splitting the part into its words is the point
+    set -- $1
+    set +f
+    _tool=${1##*/}
+    shift
+    while [ "$#" -gt 0 ]; do
+        case $1 in
+            -C) shift ;;
+            -c | -c* | --config-env* | --exec-path* | --git-dir* | --work-tree*) return 1 ;;
+            -*) : ;;
+            *) break ;;
+        esac
+        shift
+    done
+    case $_tool:${1:-} in
+        git:log | git:show | git:diff | git:grep | git:status | git:commit | git:branch | \
+            git:rev-parse | git:ls-files | git:blame | git:tag | git:notes | git:describe | \
+            git:shortlog | git:cat-file | git:merge-base | git:rev-list | git:add) return 0 ;;
+        gh:pr | gh:issue | gh:run | gh:api | gh:release | gh:search) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+check_isolated_assignment() {
+    if isolated; then
+        return 0
+    fi
+    # `-u NAME` only as its own words: stripped from the whole part, it ate the end of
+    # `X=-u SR_ISOLATED=1`, which is two assignments, and left `X==1`.
+    _flat=$(printf '%s' "$1" | tr -d "'\"\\\\" |
+        sed -E 's/(^|[[:space:]])-u[[:space:]]*SR_ISOLATED([[:space:]]|$)/\1\2/g')
+    case $_flat in
+        *SR_ISOLATED*) : ;;
+        *) return 0 ;;
+    esac
+    _trimmed=$_flat
+    while :; do
+        case $_trimmed in
+            [[:space:]]* | '('* | '{'* | '!'*) _trimmed=${_trimmed#?} ;;
+            *) break ;;
+        esac
+    done
+    _head=${_trimmed%%[[:space:]]*}
+    case ${_head##*/} in
+        git | gh)
+            if text_subcommand "$_trimmed"; then
+                return 0
+            fi
+            ;;
+        grep | rg | echo | printf | cat | jq | head | tail | ls | wc | diff) return 0 ;;
+        *) : ;;
+    esac
+    refuse "SR_ISOLATED is the environment's to set, and this command sets it." \
+        "A disposable environment sets it where the agent is started (its
+template, or managed settings). Without it, use the wrappers as they are:
+  make container-check | make container-test | make container-quality
+
+AGENTS.md, \"Everything runs in a container\"."
+}
+
 # The words of $1 as a shell reads them, one to a line: split on whitespace outside quotes, the quotes
 # gone, a backslash outside single quotes taking the next character as it is. The words this guard
 # otherwise walks keep their quotes and split inside them, and a value cannot be checked that way:
@@ -935,6 +1033,7 @@ EOF
 }
 
 check_part() {
+    check_isolated_assignment "$1"
     _whole=$1
     _stripped=$(strip_prefixes "$1")
 
@@ -987,11 +1086,13 @@ check_part() {
                 "Write the command out: every rule here reads the words it is given."
             ;;
         uv | uvx | yarn | npm | npx | pnpm | node | python | python3 | pytest | prek | ruff | pyright | eslint | vitest | playwright | corepack | vite)
-            refuse "\`${1##*/}\` must not run on the host: AGENTS.md keeps every build, linter and test inside the dev container." \
-                "Run it there instead:
+            if ! isolated; then
+                refuse "\`${1##*/}\` must not run on the host: AGENTS.md keeps every build, linter and test inside the dev container." \
+                    "Run it there instead:
   scripts/container.sh uv run pytest tests/api/test_thing.py -q
   scripts/container.sh sh -c 'cd assets && yarn test'
   make container-check | make container-test | make container-quality"
+            fi
             ;;
         make | gmake)
             # `make container-*` and `make e2e-test` are the container wrappers
@@ -1002,6 +1103,9 @@ check_part() {
                 # `make e2e-typecheck`, which runs tsc in the Playwright image
                 container-* | e2e-test | e2e-quick | e2e-typecheck) check_make_arguments "$_whole" ;;
                 *)
+                    if isolated; then
+                        return 0
+                    fi
                     refuse "\`make ${2:-}\` runs the toolchain on the host." \
                         "Use the wrapper that runs it in the container: any make container-*, and
   make e2e-test | make e2e-quick FILTER=... | make e2e-typecheck"

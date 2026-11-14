@@ -19,6 +19,12 @@ guard="$here/guard-bash.sh"
 SR_GUARD_FORCE=1
 export SR_GUARD_FORCE
 
+# Every case below is a host unless it says otherwise, and this runs inside isx boxes whose
+# own environment has SR_ISOLATED=1 - so it is taken out of what the guard inherits, and
+# put back for one case at a time by in_isolated.
+SR_ISOLATED=
+export SR_ISOLATED
+
 failures=0
 
 # A JSON string, the way Claude Code would have written it: backslashes and quotes
@@ -858,6 +864,107 @@ Run gh issue comment 773 --body "..." to reply.
 MD
 CASE
 )"
+
+# A disposable environment (SR_ISOLATED=1, set by the box and not by the command): the
+# toolchain stands down, and nothing about the repository does.
+in_isolated() {
+    SR_ISOLATED=1
+    "$@"
+    SR_ISOLATED=
+}
+
+in_isolated allow 'uv run pytest tests/api -q'
+in_isolated allow 'cd assets && yarn test'
+in_isolated allow 'make check'
+in_isolated allow 'make test'
+in_isolated allow "sh -c 'uv run pytest'"
+in_isolated allow 'scripts/container.sh make test'
+in_isolated refuse 'git add -A'
+in_isolated refuse 'git commit --no-verify -m x'
+in_isolated refuse 'git stash'
+in_isolated refuse 'gh issue comment 773 --body "Fixed in the next release."'
+in_isolated refuse 'make container-check | tail -20'
+# The variable is the environment's to set. On the command line it is one more word of a
+# command that is still `uv` on a host - and `=0` is not a way of saying yes.
+# ...including through the wrappers, whose first word is the one the container rule asks for
+# and which read the variable themselves.
+refuse 'SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'SR_ISOLATED=1 make container-test'
+refuse 'env -i SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'sudo SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'timeout 600 env SR_ISOLATED=1 scripts/container.sh make test'
+refuse '(SR_ISOLATED=1 scripts/container.sh make test)'
+refuse 'export SR_ISOLATED=1; scripts/container.sh make test'
+refuse 'FOO=1 SR_ISOLATED=1 scripts/container.sh make test'
+refuse "sh -c 'SR_ISOLATED=1 scripts/container.sh make test'"
+# The spellings a list of wrappers omits, which is why the rule reads the whole part: a
+# `make` argument is exported to the recipe, a quoted name is the same name, and an option
+# that takes a value, or a wrapper nobody listed, stands between the word and the command.
+refuse 'make container-test SR_ISOLATED=1'
+refuse 'make container-pytest ARGS=x SR_ISOLATED=1'
+refuse 'env "SR_ISOLATED=1" scripts/container.sh make test'
+refuse "env 'SR_ISOLATED=1' scripts/container.sh make test"
+refuse 'env -u FOO SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'nice -n 5 env SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'stdbuf -o0 env SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'bash -lc "SR_ISOLATED=1 scripts/container.sh make test"'
+refuse 'eval "SR_ISOLATED=1 scripts/container.sh make test"'
+refuse 'if true; then SR_ISOLATED=1 scripts/container.sh make test; fi'
+refuse '! SR_ISOLATED=1 scripts/container.sh make test'
+# The name without `=`, a backslash in it, a name split by quotes, and an assignment that
+# is not spelled `=`: each sets the variable, and none contains `SR_ISOLATED=`.
+refuse 'env SR_ISOLATED\=1 scripts/container.sh make test'
+refuse 'make container-test SR_ISOLATED\=1'
+refuse 'SR_ISOLATED+=1 make container-test'
+refuse 'read -r SR_ISOLATED <<< 1; export SR_ISOLATED; scripts/container.sh make test'
+refuse 'printf -v SR_ISOLATED 1; export SR_ISOLATED; make container-test'
+refuse 'env SR_ISO"LATED"=1 scripts/container.sh make test'
+refuse 'env SR_ISOLATED"="1 scripts/container.sh make test'
+# The backslash is taken out before the name is looked for: nothing else in this case has it.
+refuse 'env SR_ISO\LATED=1 scripts/container.sh make test'
+# git and gh can run a shell, and are readers only for the subcommands that do not.
+refuse 'git -c "alias.x=!SR_ISOLATED=1 scripts/container.sh make test" x'
+refuse 'git -c core.pager="SR_ISOLATED=1 scripts/container.sh make test" log'
+refuse 'git --config-env=core.pager=SR_ISOLATED log'
+refuse "git rebase -x 'SR_ISOLATED=1 scripts/container.sh make test' HEAD~1"
+refuse "git rebase --exec 'SR_ISOLATED=1 scripts/container.sh make test' HEAD~1"
+refuse 'git bisect run env SR_ISOLATED=1 scripts/container.sh make test'
+refuse "git submodule foreach 'SR_ISOLATED=1 scripts/container.sh make test'"
+refuse "git filter-branch --tree-filter 'SR_ISOLATED=1 scripts/container.sh make test' HEAD"
+refuse "git difftool -x 'SR_ISOLATED=1 scripts/container.sh make test'"
+refuse 'git config core.pager SR_ISOLATED=1'
+refuse 'gh alias set x "!SR_ISOLATED=1 scripts/container.sh make test"'
+refuse "sed -n '1e SR_ISOLATED=1 scripts/container.sh make test' f"
+# Unsetting it asks for a container, which is the safe direction - but only as its own words:
+# `X=-u SR_ISOLATED=1` is two assignments, and read as an unset it was let through.
+allow 'env -u SR_ISOLATED scripts/container.sh make test'
+allow 'env -uSR_ISOLATED scripts/container.sh make test'
+allow 'env -u FOO -u SR_ISOLATED scripts/container.sh make test'
+refuse 'env -u SR_ISOLATED SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'X=-u SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'env X=-u SR_ISOLATED=1 scripts/container.sh make test'
+refuse 'make container-test X=-u SR_ISOLATED=1'
+# What the repository asks for, with the name in it: a flag that is `-c` for git means
+# something else after the subcommand, and a word of a message is not a subcommand.
+allow 'git log -c --grep=SR_ISOLATED'
+allow 'git -C /tmp log --grep=SR_ISOLATED'
+allow 'git commit -m "fix: SR_ISOLATED with the alias"'
+allow 'gh issue list --search SR_ISOLATED'
+allow 'wc -l SR_ISOLATED'
+allow 'cat SR_ISOLATED'
+allow 'ls SR_ISOLATED'
+allow 'diff SR_ISOLATED other'
+# Talking about it is not setting it.
+allow 'git commit -m "SR_ISOLATED=1 runs the wrappers in place"'
+allow 'grep -n SR_ISOLATED= AGENTS.md'
+allow 'echo SR_ISOLATED=1'
+# Where the environment has it, a command setting it too changes nothing worth refusing.
+in_isolated allow 'SR_ISOLATED=1 make test'
+for value in 0 2 true yes ' 1' 01; do
+    SR_ISOLATED=$value
+    refuse 'uv run pytest'
+done
+SR_ISOLATED=
 
 if [ "$failures" -ne 0 ]; then
     printf '\n%s guard case(s) failed\n' "$failures" >&2

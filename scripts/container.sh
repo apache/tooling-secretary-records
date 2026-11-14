@@ -23,6 +23,10 @@
 #   SR_PYTHON        run against this Python version instead of the image
 #                     default, using a throwaway venv (this is how the CI matrix
 #                     versions are reproduced locally)
+#   SR_ISOLATED      set to `1` where the whole environment is disposable (an isx
+#                     box): the command runs in this checkout directly, with no
+#                     container. SR_TIMEOUT applies; SR_PYTHON, SR_DETACH and
+#                     SR_PORT are refused, since each needs a container of its own
 #   SR_RUNTIME       container runtime to use (default: podman, else docker)
 #   SR_VENV_VOLUME   name the virtualenv volume outright, rather than taking the
 #                     one derived from this checkout
@@ -110,6 +114,37 @@ fi
 if [ "$#" -eq 0 ]; then
     echo "usage: $0 <command> [args...]" >&2
     exit 2
+fi
+
+# Already inside a disposable environment (SR_ISOLATED=1, see AGENTS.md): there is nothing
+# left to isolate from, and a container in it would only rebuild the image. The command runs
+# where it stands. What is for a container of its own has no meaning here and is refused,
+# where running it as something else would answer a different question.
+if [ "${SR_ISOLATED:-}" = 1 ]; then
+    if [ -n "${SR_PYTHON:-}" ] || [ -n "$DETACH" ] || [ -n "${SR_PORT:-}" ]; then
+        echo "SR_PYTHON, SR_DETACH and SR_PORT need a container of their own: not with SR_ISOLATED=1" >&2
+        exit 2
+    fi
+    PATH="$HOME/.local/bin:$PATH"
+    export PATH
+    cd "$repo_root"
+    sh "$script_dir/ensure-node-modules.sh" "$repo_root/assets"
+    if [ -z "$TIMEOUT" ]; then
+        exec "$@"
+    fi
+    # In the background with `wait`, as the container path below does, so that a signal sent
+    # to this script is acted on and not held until the command ends - and passed on, since
+    # `timeout` is a child and outlives a parent that is killed.
+    exec 3<&0
+    timeout -s TERM -k 30 "$TIMEOUT" "$@" <&3 &
+    child=$!
+    # `|| true`: under `set -e` the child's own status would end the trap at the wait, and
+    # the status this exits with would be whichever that was and not the one named here.
+    trap 'kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null || true; exit 143' TERM
+    trap 'kill -TERM "$child" 2>/dev/null; wait "$child" 2>/dev/null || true; exit 130' INT
+    status=0
+    wait "$child" || status=$?
+    exit "$status"
 fi
 
 if [ -n "${SR_RUNTIME:-}" ]; then

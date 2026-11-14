@@ -40,6 +40,22 @@ suffix=$(checkout_suffix "$repo_root")
 PLAYWRIGHT_IMAGE="${SR_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.61.1-noble}"
 NODE_VOLUME="${SR_E2E_NODE_VOLUME:-secretary-records-e2e-node$suffix}"
 
+# Already inside a disposable environment (SR_ISOLATED=1): no image to run it in.
+if [ "${SR_ISOLATED:-}" = 1 ]; then
+    status=0
+    (
+        cd "$repo_root/e2e" &&
+            npm install --no-audit --no-fund --loglevel=error >/dev/null &&
+            npm run --silent typecheck
+    ) || status=$?
+    if [ "$status" -eq 0 ]; then
+        echo "e2e-typecheck: PASSED"
+    else
+        echo "e2e-typecheck: FAILED - tsc exited $status"
+    fi
+    exit "$status"
+fi
+
 if [ -n "${SR_RUNTIME:-}" ]; then
     runtime="$SR_RUNTIME"
 elif command -v podman >/dev/null 2>&1; then
