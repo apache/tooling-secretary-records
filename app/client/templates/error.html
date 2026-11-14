@@ -1,0 +1,17 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+  {{ status_code }}
+{% endblock title %}
+
+{% block page_title %}
+  {% if status_code == 403 %}
+    Not allowed
+  {% else %}
+    Not found
+  {% endif %}
+{% endblock page_title %}
+
+{% block content %}
+  <p data-testid="error-message">{{ message }}</p>
+{% endblock content %}

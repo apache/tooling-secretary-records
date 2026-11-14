@@ -1,0 +1,34 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+  Home
+{% endblock title %}
+
+{% block page_title %}
+  Secretary Records
+{% endblock page_title %}
+
+{% block content %}
+  {% if current_user %}
+    {# The island turns these into a sentence (assets/src/js/components/RoleSummary.svelte).
+       Single-quoted: tojson escapes the apostrophe and leaves the double quotes its own
+       syntax needs. #}
+    <div id="role-summary"
+         class="mb-4"
+         data-uid="{{ current_user.uid }}"
+         data-roles='{{ current_user.sorted_roles | tojson }}'></div>
+    {% if current_user.has_any_role(secretarial_roles) %}
+      <p data-testid="queue-placeholder">The work queue will be here.</p>
+    {% else %}
+      <p data-testid="no-access">
+        The queue holds personal data, so only the Secretary, the Assistant Secretary and the
+        secretarial team can see it. Ask the Secretary if you should be one of them.
+      </p>
+    {% endif %}
+  {% else %}
+    <p>
+      This tool processes the paperwork that arrives at <code>secretary@apache.org</code>.
+      <a href="{{ url_for("oauth_endpoint") }}?login={{ request.path }}">Sign in</a> with your Apache account to continue.
+    </p>
+  {% endif %}
+{% endblock content %}

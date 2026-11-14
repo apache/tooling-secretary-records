@@ -1,0 +1,27 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+  Server status
+{% endblock title %}
+
+{% block page_title %}
+  Server status
+{% endblock page_title %}
+
+{% block content %}
+  <div class="table-responsive">
+    <table class="table table-sm" data-testid="server-status">
+      <tbody>
+        {% for name, value in rows %}
+          <tr>
+            <th scope="row">{{ name }}</th>
+            <td>{{ value }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <p>
+    <a href="{{ url_for('client.admin.data') }}">Browse the database</a>
+  </p>
+{% endblock content %}

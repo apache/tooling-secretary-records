@@ -1,0 +1,46 @@
+# The overridden settings here are intended for development use.
+# For production and test, the config file is created in Puppet
+# Default values are defined in app/config.py
+
+base:
+  state_dir: ./state                            # default: "./state"
+  public_url: https://localhost                 # default: ""
+  # a banner on every page says the instance is not connected to production data
+  dev_mode: true                                # default: false
+  # send the Content Security Policy report-only, so it blocks nothing (a way back, not a default)
+  csp_report_only: false                        # default: false
+
+server:
+  # Docker works best with 0.0.0.0
+  host: localhost                               # default: 0.0.0.0
+  port: 4500                                    # default: 8080
+  access_log: "-"                               # default: "-"
+  error_log: "-"                                # default: "-"
+  # The cert and key files are used by server.py
+  certfile: state/cert.pem                      # default: None
+  keyfile: state/key.pem                        # default: None
+
+db:
+  sqlite_db_file: secretary-records.db          # default: "secretary-records.db"
+
+logging:
+  # If true: enable debug logging for all modules
+  # If a list: enable debug for the named modules only.
+  # (If a name starts with '.', this is prefixed with 'app')
+  debug: false                                  # default: false (must be bool or list[str])
+  file: ./state/secretary-records.log           # default: "secretary-records.log"
+
+# Who holds which role. A stand-in until the Secretary and Assistant Secretary are read from
+# the offices in committee-info.txt (REQUIREMENTS.md, R-3); the secretarial team stays a list.
+# Put your own uid in one of these to see the tool as that role.
+roles:
+  secretary: []                                 # default: []
+  assistant_secretary: []                       # default: []
+  secretarial_team: []                          # default: []
+
+# Where outgoing mail goes. Leave the whole block out and no mail is sent - which is what any
+# instance that is not the real one wants. There is no default host, so a checkout that says
+# nothing about mail sends none.
+# smtp:
+#   host: mail-relay.apache.org                 # required if this block is present
+#   port: 587                                   # default: 587

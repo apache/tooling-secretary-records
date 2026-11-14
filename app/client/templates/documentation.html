@@ -1,0 +1,26 @@
+{% extends "layouts/base.html" %}
+
+{% block title %}
+  Documentation
+{% endblock title %}
+
+{% block page_title %}
+  Documentation
+{% endblock page_title %}
+
+{% block content %}
+  {# Every section is rendered, including the roles the reader does not hold: somebody about
+     to take one on has to be able to read it, and the browser's own find has to reach it. #}
+  {% for section in sections %}
+    <section id="{{ section.anchor }}"
+             class="mb-4"
+             data-doc-section="{{ section.key }}"
+             {% if section.roles %}data-doc-mine="{{ 'true' if section.mine else 'false' }}"{% endif %}>
+      <h2 class="h5">
+        {{ section.title }}
+        {% if section.mine %}<span class="badge text-bg-secondary">yours</span>{% endif %}
+      </h2>
+      <div>{{ rendered[section.key]|safe }}</div>
+    </section>
+  {% endfor %}
+{% endblock content %}

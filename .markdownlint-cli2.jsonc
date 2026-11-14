@@ -1,0 +1,45 @@
+{
+  "config": {
+    "MD004": {
+      "style": "dash"
+    },
+    "MD013": false,
+    "MD022": false,
+    "MD024": false,
+    "MD026": {
+      "punctuation": ".,;:。，；："
+    },
+    "MD033": {
+      "allowed_elements": [
+        "a",
+        "img",
+        "script"
+      ]
+    }
+  },
+  // Fix any fixable errors
+  "fix": true,
+  // Ignore files referenced by .gitignore (only valid at root)
+  "gitignore": true,
+  // Define glob expressions to ignore.
+  //
+  // The pages under app/md are fragments of a rendered page rather than documents: they have
+  // no h1 of their own (the page supplies it), they carry the placeholders the documentation
+  // page mounts its figures into, and they link to anchors that exist only once the page is
+  // composed. Linting them as standalone markdown asks for none of that to be true.
+  "ignores": [
+    // the requirements as agreed with the Secretary, changed by agreement rather than by a fix
+    "REQUIREMENTS.md",
+    "WORKBENCH.md",
+    "app/md/*.md",
+    "app/md/**/*.md"
+  ],
+  // Disable banner message on stdout (only valid at root)
+  "noBanner": true,
+  // Disable inline config comments
+  "noInlineConfig": true,
+  // Disable progress on stdout (only valid at root)
+  "noProgress": true,
+  // Show found files on stdout (only valid at root)
+  "showFound": true
+}

@@ -1,0 +1,18 @@
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+/dist/
+node_modules/
+yarn-error.log
+/test-results/
+/playwright-report/
+/playwright/.cache/
+
+# incremental build cache
+*/**/*.tsbuildinfo
+
+stats.html

@@ -1,0 +1,62 @@
+name: Analyze using pre-commit hooks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  LATEST_PY_VERSION: '3.13'
+  UV_VERSION: '0.12.2'
+
+jobs:
+  analyze:
+    runs-on:
+      - runs-on=${{ github.run_id }}
+      - cpu=8
+      - family=c7i
+      - image=ubuntu24-full-x64
+      - tag=infra
+    timeout-minutes: 20
+    steps:
+      # The checkout comes first now: what installs the packages is a script in this
+      # repository, and this is the step that puts it there. A checkout needs neither package.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.LATEST_PY_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --all-groups
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '22'
+
+      - name: Install frontend dependencies
+        working-directory: assets
+        run: |
+          corepack enable
+          yarn install --immutable
+
+      - name: Cache prek data
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/prek
+          key: prek-3|${{ env.pythonLocation }}|${{ hashFiles('.pre-commit-config.yaml') }}
+
+      - name: Run prek
+        run: |
+          uv run --frozen prek run --show-diff-on-failure --color=always --all-files

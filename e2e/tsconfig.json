@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "esnext",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "allowJs": true,
+    "checkJs": false,
+
+    // Playwright transpiles a spec without type-checking it, so running the suite checks
+    // none of this - `npm run typecheck` is what does. See e2e/README.md.
+    //
+    // `strict` is here for `noImplicitAny` above all: an untyped `page` parameter makes
+    // every call on it unchecked, which is most of what a helper in a spec does. The three
+    // below it were already free on the suite as it stood, and each closes a way for a spec
+    // to pass while measuring nothing - an index that might be `undefined` compares equal
+    // to another one, and a binding nothing reads is a check somebody meant to make.
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true
+  },
+  // `tests/**/*.ts` rather than only the specs, so the helpers under tests/support are
+  // checked as themselves rather than only where a spec happens to reach them.
+  "include": ["tests/**/*.ts", "./*.ts"]
+}

@@ -1,0 +1,5 @@
+Database migrations for the sqlite database in use by Secretary Records.
+
+To add a new revision, type in the following:
+
+$ uv run alembic -c app/db/alembic.ini revision --autogenerate -m "<description>"

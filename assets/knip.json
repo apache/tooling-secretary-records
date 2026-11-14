@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/js/pages/*.ts",
+    "src/**/*.test.ts"
+  ],
+  "project": ["src/**/*.{js,ts,svelte}"],
+  "ignoreDependencies": [
+    "@popperjs/core",
+    "bootstrap",
+    "bootstrap-icons",
+    "jscpd"
+  ],
+  "vite": {
+    "config": ["vite.config.js"]
+  }
+}
