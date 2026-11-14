@@ -605,8 +605,9 @@ fields, or into `NOT_BROWSABLE`, in the pull request that adds it -
 A comment from a session goes up under somebody's account, and is read by
 colleagues.
 
-- **Answer what was asked, and stop.** #796 asked for one file and got a whole
-  data model back: "please do not conflate this with #773".
+- **Answer what was asked, and stop.** A request for one file answered with a whole
+  data model mixes the question with others the asker is keeping apart, and they
+  then have to say so before they can read the answer.
 - **Write in [ASD-STE100](https://www.asd-ste100.org/) (Simplified Technical
   English).** This rule applies to pull request descriptions, to comments on issues
   and pull requests, and to commit messages. Use these rules:
