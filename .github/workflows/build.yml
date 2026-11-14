@@ -353,3 +353,33 @@ jobs:
           path: e2e/screenshots/
           if-no-files-found: ignore
           retention-days: 14
+
+  # What a deployment installs is `requirements.txt`, which is exported without the dependency groups.
+  # The jobs above install the `test` group as well, so a package that only that group declares is
+  # present in every one of them and absent in production, where the server fails to start on its
+  # first import. This job installs the file alone and imports the application from it.
+  production-install:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      # `--no-deps`: the file lists every package, pinned, so resolving anything else would hide what it lacks.
+      - name: Install requirements.txt alone
+        run: |
+          uv venv --python 3.12 "$RUNNER_TEMP/production"
+          uv pip install --python "$RUNNER_TEMP/production/bin/python" --no-deps -r requirements.txt
+
+      - name: Import the application
+        run: '"$RUNNER_TEMP/production/bin/python" -I scripts/ci/production_import.py'
