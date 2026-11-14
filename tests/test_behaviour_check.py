@@ -28,7 +28,6 @@ import json
 import pathlib
 import subprocess
 import sys
-import typing
 
 import pytest
 
@@ -123,15 +122,15 @@ class TestCompare:
 
 
 class TestVerdict:
-    found = behaviour.Comparison(changed=["http/a.txt"], added=["scenarios/b.txt"], removed=[])
+    found = behaviour.Comparison(changed=["http/a.txt"], added=["tasks/b.txt"], removed=[])
 
     def test_a_difference_nothing_allows_fails(self) -> None:
         lines, passed = behaviour.verdict(self.found, [("http/*", "why")])
         assert not passed
-        assert "scenarios/b.txt: new, and nothing says it should" in lines
+        assert "tasks/b.txt: new, and nothing says it should" in lines
 
     def test_every_difference_allowed_passes(self) -> None:
-        _, passed = behaviour.verdict(self.found, [("http/*", "one"), ("scenarios/b.txt", "two")])
+        _, passed = behaviour.verdict(self.found, [("http/*", "one"), ("tasks/b.txt", "two")])
         assert passed
 
     def test_a_glob_crosses_directories(self) -> None:
@@ -144,69 +143,79 @@ class TestVerdict:
         assert lines == ["http/*: 'old reason' allows a change here, and nothing here changed - drop the trailer"]
 
 
+RECORDED = ["http/committees.txt", "http/a/b.txt", "scenarios/01-x.txt", "tasks/2025-04-01/x.txt"]
+"""A base record whose every path ends in .txt."""
+
+MIXED = [*RECORDED, "artefacts/board-records/1.json", "artefacts/calendar/calendar.md", "foo"]
+"""A base record with paths of other kinds, as a record with rendered files would hold."""
+
+
 class TestGlobs:
     @pytest.mark.parametrize("glob", ["*", "**", "*/*", "**/", "?*"])
-    def test_a_glob_naming_no_part_of_a_path_is_too_broad(self, glob: str) -> None:
-        assert gate.too_broad(glob)
+    @pytest.mark.parametrize("recorded", [RECORDED, []])
+    def test_a_glob_naming_no_part_of_a_path_is_too_broad(self, glob: str, recorded: list[str]) -> None:
+        assert gate.too_broad(glob, recorded)
 
-    @pytest.mark.parametrize("glob", ["http/*", "*.txt", "scenarios/01-*"])
+    @pytest.mark.parametrize("glob", ["*.txt", "*t", "*.*"])
+    def test_a_glob_matching_every_recorded_path_is_too_broad(self, glob: str) -> None:
+        assert gate.too_broad(glob, RECORDED)
+
+    @pytest.mark.parametrize("glob", ["http/*", "http/*.txt", "scenarios/*", "tasks/2025-04-01/*"])
     def test_a_glob_naming_something_is_not(self, glob: str) -> None:
-        assert not gate.too_broad(glob)
+        assert not gate.too_broad(glob, RECORDED)
+
+    def test_the_only_path_a_record_holds_is_named_not_globbed(self) -> None:
+        assert not gate.too_broad("a.txt", ["a.txt"])
+
+    def test_with_no_record_a_named_directory_is_not_too_broad(self) -> None:
+        assert not gate.too_broad("http/*", [])
+
+    def test_allowances_that_together_cover_the_record_are_refused(self) -> None:
+        recorded = ["http/a.txt", "tasks/b.txt"]
+        assert gate.refusals([], [("http/*", "one"), ("tasks/*", "two")], [], recorded) == [
+            "`Behaviour-Allow: http/*, tasks/*` together allow every difference; name the paths that change"
+        ]
+        assert gate.refusals([], [("http/*", "one"), ("tasks/*", "two")], [], [*recorded, "scenarios/c.txt"]) == []
+
+    def test_plain_paths_that_name_the_whole_record_are_named_not_globbed(self) -> None:
+        assert (
+            gate.refusals([], [("http/a.txt", "one"), ("tasks/b.txt", "two")], [], ["http/a.txt", "tasks/b.txt"]) == []
+        )
 
     def test_a_too_broad_allowance_is_refused(self) -> None:
-        assert gate.refusals([], [("**", "everything")], []) == [
-            "`Behaviour-Allow: **` ('everything') allows every difference; name the paths that change"
+        assert gate.refusals([], [("**", "everything"), ("*.txt", "every file")], [], RECORDED) == [
+            "`Behaviour-Allow: **` ('everything') allows every difference; name the paths that change",
+            "`Behaviour-Allow: *.txt` ('every file') allows every difference; name the paths that change",
         ]
 
-    RECORD: typing.ClassVar[list[str]] = [
-        "routes.txt",
-        "normalisation/routes.txt",
-        "http/index.txt",
-        "http/admin/data.txt",
-        "scenarios/01-x.txt",
-    ]
-    """The kinds of path a record holds: every one of them ends in `.txt`."""
-
-    @pytest.mark.parametrize("glob", ["*.txt", "*t", "*.*", "*x*", "*/x.txt", "**/foo", "h*/x.txt", "?ttp/*"])
-    def test_a_glob_that_names_no_directory_is_refused(self, glob: str) -> None:
-        """A glob is anchored by a first path segment written out: without one it reaches every directory of
-        the record, whichever files it happens to hold today."""
-        [reason] = gate.refusals([], [(glob, "why")], [], recorded=self.RECORD)
-        assert reason == (
-            f"`Behaviour-Allow: {glob}` ('why') names no directory, and so can allow a difference anywhere; "
+    @pytest.mark.parametrize(
+        "glob", ["*.txt", "*t", "*.*", "*/x.txt", "**/foo", "[ht]*/x.txt", "[h]ttp/*", "????/*.txt", "/http/*"]
+    )
+    def test_a_pattern_without_its_directory_is_refused(self, glob: str) -> None:
+        """Against a record no one of these matches whole, so it is the directory that is missing."""
+        assert gate.refusals([], [(glob, "why")], [], MIXED) == [
+            f"`Behaviour-Allow: {glob}` ('why') reaches into every directory of the record; "
             "name the directory: http/*.txt, not *.txt"
-        )
-
-    @pytest.mark.parametrize("glob", ["*.txt", "*/x.txt"])
-    def test_a_glob_that_names_no_directory_is_refused_with_no_record_to_read(self, glob: str) -> None:
-        assert len(gate.refusals([], [(glob, "why")], [])) == 1
-
-    def test_a_glob_matching_every_recorded_path_is_still_refused(self) -> None:
-        """A record of one directory: a glob over it names the directory, and still allows everything."""
-        [reason] = gate.refusals([], [("http/*", "why")], [], recorded=["http/a.txt", "http/b/c.txt"])
-        assert reason == (
-            "`Behaviour-Allow: http/*` ('why') matches every file the base record holds, and so allows every "
-            "difference; name the paths that change"
-        )
+        ]
 
     @pytest.mark.parametrize(
         "glob",
-        ["http/*.txt", "http/admin/*", "scenarios/*", "normalisation/*", "routes.txt", "http/index.txt"],
+        ["http/*.txt", "scenarios/*", "normalisation/*", "http/meetings/*/ics.txt", "http/auth.txt", "foo"],
     )
-    def test_a_glob_naming_part_of_the_record_is_allowed(self, glob: str) -> None:
-        assert gate.refusals([], [(glob, "why")], [], recorded=self.RECORD) == []
+    def test_a_pattern_under_a_named_directory_or_a_plain_path_is_allowed(self, glob: str) -> None:
+        assert gate.refusals([], [(glob, "why")], [], MIXED) == []
 
 
 class TestHarnessChanges:
     def test_a_harness_change_says_so(self) -> None:
-        [reason] = gate.refusals(["tests/behaviour/routes.py"], [], [])
+        [reason] = gate.refusals(["tests/behaviour/routes.py"], [], [], RECORDED)
         assert "Behaviour-Harness" in reason
 
     def test_a_harness_change_that_says_so_is_compared(self) -> None:
-        assert gate.refusals(["tests/behaviour/routes.py", "docs/x.md"], [], [("why", "subject")]) == []
+        assert gate.refusals(["tests/behaviour/routes.py", "docs/x.md"], [], [("why", "subject")], RECORDED) == []
 
     def test_a_harness_change_with_an_app_change_is_refused_even_when_it_says_so(self) -> None:
-        [reason] = gate.refusals(["tests/data/x.txt", "app/routes.py"], [], [("why", "subject")])
+        [reason] = gate.refusals(["tests/data/x.txt", "app/routes.py"], [], [("why", "subject")], RECORDED)
         assert "split it" in reason
 
     @pytest.mark.parametrize(
@@ -217,7 +226,7 @@ class TestHarnessChanges:
         assert gate.touched([path], gate.HARNESS_FILES) == [path]
 
     def test_an_app_change_alone_is_compared(self) -> None:
-        assert gate.refusals(["app/routes.py"], [], []) == []
+        assert gate.refusals(["app/routes.py"], [], [], RECORDED) == []
 
 
 class TestHasHarness:
@@ -348,6 +357,21 @@ class TestCheck:
         assert "in these commits: this branch changes what the record is made with" in capsys.readouterr().out
         assert behaviour.check(out, head, diff, sha) == 1
 
+    def test_a_full_run_does_not_honour_an_allowance_the_gate_refuses(
+        self, repo: pathlib.Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A squash message on main is not a branch the gate stopped: what it would refuse allows nothing."""
+        sha = commit(repo, "harness", HARNESS)
+        commit(repo, "a change to the app\n\nBehaviour-Allow: *\nBehaviour-Allow: b/y.txt", {"app/x.py": "2"})
+        recording(monkeypatch, {"a/x.txt": "2", "b/y.txt": "2"})
+        out = recorded_base(repo, sha, {"a/x.txt": "1", "b/y.txt": "1"})
+        head, diff = repo / "state" / "behaviour-head", repo / "state" / "behaviour.diff"
+        assert behaviour.check(out, head, diff, sha, full=True) == 1
+        printed = capsys.readouterr().out
+        assert "`Behaviour-Allow: *` is not honoured" in printed
+        assert "a/x.txt: changed, and nothing says it should" in printed
+        assert "b/y.txt: changed, allowed by 'a change to the app'" in printed
+
     @staticmethod
     def mapped(out: pathlib.Path) -> None:
         """A module map beside the base record, as a recording writes one: one route ran x, one ran y."""
@@ -452,16 +476,34 @@ class TestCheck:
         assert checked(repo, recorded_base(repo, sha, {"a.txt": "1"})) == expected
         assert "+2" in (repo / "state" / "behaviour.diff").read_text()
 
-    @pytest.mark.parametrize(("allowed", "expected"), [("*.txt", 1), ("http/*.txt", 0)])
-    def test_an_allowance_matching_the_whole_record_is_refused(
-        self, repo: pathlib.Path, monkeypatch: pytest.MonkeyPatch, allowed: str, expected: int
+    @pytest.mark.parametrize(("glob", "expected"), [("*.txt", 1), ("*.*", 1), ("*t", 1), ("http/*.txt", 0)])
+    def test_an_allowance_matching_the_whole_base_record_is_refused(
+        self, repo: pathlib.Path, monkeypatch: pytest.MonkeyPatch, glob: str, expected: int
     ) -> None:
         sha = commit(repo, "harness", HARNESS)
         git(repo, "checkout", "-q", "-b", "branch")
-        commit(repo, f"change\n\nBehaviour-Allow: {allowed}", {"app/x.py": "2"})
-        asked = recording(monkeypatch, {"http/a.txt": "2", "routes.txt": "r"})
-        assert checked(repo, recorded_base(repo, sha, {"http/a.txt": "1", "routes.txt": "r"})) == expected
-        assert len(asked) == (0 if expected else 1)
+        commit(repo, f"change\n\nBehaviour-Allow: {glob}", {"app/x.py": "2"})
+        recording(monkeypatch, {"http/a.txt": "2", "tasks/b.txt": "1"})
+        assert checked(repo, recorded_base(repo, sha, {"http/a.txt": "1", "tasks/b.txt": "1"})) == expected
+
+    @pytest.mark.parametrize(("glob", "expected", "refused"), [("http/*", 1, True), ("http/a.txt", 0, False)])
+    def test_the_whole_record_is_read_from_the_base(
+        self,
+        repo: pathlib.Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        glob: str,
+        expected: int,
+        refused: bool,
+    ) -> None:
+        """Every path under one directory: only the base record says `http/*` is all of it, and the branch
+        is refused for it rather than compared."""
+        sha = commit(repo, "harness", HARNESS)
+        git(repo, "checkout", "-q", "-b", "branch")
+        commit(repo, f"change\n\nBehaviour-Allow: {glob}", {"app/x.py": "2"})
+        recording(monkeypatch, {"http/a.txt": "2", "http/b.txt": "1"})
+        assert checked(repo, recorded_base(repo, sha, {"http/a.txt": "1", "http/b.txt": "1"})) == expected
+        assert ("This branch is not compared:" in capsys.readouterr().out) is refused
 
     def test_the_bootstrap_records_and_passes(self, repo: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> None:
         sha = commit(repo, "before", {"a": "1"})
