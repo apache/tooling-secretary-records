@@ -36,9 +36,9 @@ trailer block of its message:
 The value is a path in the record, or a glob over paths (`fnmatch`, where `*` crosses `/`) that starts
 with a directory written out: `http/*.txt`, not `*.txt`, `*/x.txt` or `**/x`. Globs that alone or together
 match every path the base record holds are refused too, and a full run does not honour them. The reason
-is that commit's subject, as for `Quality-Allow:`. A trailer that allows nothing that changed is reported, so that one left behind
-after the change it argued for was reverted does not go on excusing whatever moves there next. Only
-the branch's own commits count: not a merge, nor a branch merged in.
+is that commit's subject, as for `Quality-Allow:`. A trailer that allows nothing that changed is
+reported, so that one left behind after the change it argued for was reverted does not go on excusing
+whatever moves there next. Only the branch's own commits count: not a merge, nor a branch merged in.
 
 A branch that changes the harness itself - `tests/behaviour`, the suite's conftest and fixture data,
 these scripts - says so with `Behaviour-Harness: <why>`, and changes nothing under `app/`
