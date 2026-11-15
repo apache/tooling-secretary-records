@@ -307,10 +307,11 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   names the directory it is in: a first path segment written out, then a `/`.
   `http/*.txt`, `scenarios/*` and `normalisation/*` are globs of that form;
   `*.txt`, `*t`, `*.*`, `*/x.txt` and `**/foo` are refused, and so is a bare `*`
-  or `**`, and a glob that matches every file the base record holds.
+  or `**`, and globs that alone or together match every file the base record holds.
   `state/behaviour.diff` has every difference to read before writing one. A
   trailer that allows nothing that changed is reported, and only the branch's own
-  commits count - not a merge, nor a branch merged in.
+  commits count - not a merge, nor a branch merged in. The nightly full run does
+  not honour an allowance the gate would refuse.
 
   A change to the harness itself - `tests/behaviour`, the suite's conftest and
   fixture data, `scripts/ci/behaviour*.py`, `scripts/ci/trailers.py` - says why
@@ -337,7 +338,8 @@ in them (#705, #729, #785, ...) is BAT's, not this repository's.
   branch's `Behaviour-Allow:` and `Behaviour-Harness:` lines in the trailer
   block at the end of the squashed message** - GitHub's default message strings
   each commit's message into a list, where they are no longer trailers. Its
-  first base is made by dispatching it once with a base, as its header says.
+  first base is made by dispatching it once with a base and `bootstrap` set,
+  which it honours only while no commit has compared clean.
 - **Show a new assertion failing before you trust it.** Run it against the code
   as it was before your change, and put what it reported in the pull request. A
   test that has only ever passed has not been shown to test anything, and

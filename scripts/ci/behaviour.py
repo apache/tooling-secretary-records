@@ -33,11 +33,12 @@ trailer block of its message:
 
     Behaviour-Allow: http/admin/*.txt
 
-The value is a path in the record, or a glob over paths (`fnmatch`, where `*` crosses `/`); one that
-names no part of a path, `*` or `**`, is refused. The reason is that commit's subject, as for
-`Quality-Allow:`. A trailer that allows nothing that changed is reported, so that one left behind
-after the change it argued for was reverted does not go on excusing whatever moves there next. Only
-the branch's own commits count: not a merge, nor a branch merged in.
+The value is a path in the record, or a glob over paths (`fnmatch`, where `*` crosses `/`) that starts
+with a directory written out: `http/*.txt`, not `*.txt`, `*/x.txt` or `**/x`. Globs that alone or together
+match every path the base record holds are refused too, and a full run does not honour them. The reason
+is that commit's subject, as for `Quality-Allow:`. A trailer that allows nothing that changed is
+reported, so that one left behind after the change it argued for was reverted does not go on excusing
+whatever moves there next. Only the branch's own commits count: not a merge, nor a branch merged in.
 
 A branch that changes the harness itself - `tests/behaviour`, the suite's conftest and fixture data,
 these scripts - says so with `Behaviour-Harness: <why>`, and changes nothing under `app/`
@@ -361,6 +362,13 @@ def _report(
     return 0 if passed else 1
 
 
+def _honoured(allowances: list[tuple[str, str]], recorded: list[str]) -> tuple[list[tuple[str, str]], list[str]]:
+    """The allowances the gate does not refuse, and a note for each glob it does."""
+    dropped = {glob for globs, _ in gate.refused(allowances, recorded) for glob in globs}
+    kept = [(glob, subject) for glob, subject in allowances if glob not in dropped]
+    return kept, [f"`{gate.ALLOW}: {glob}` is not honoured: the gate refuses it" for glob in sorted(dropped)]
+
+
 def _harness_notes(changed: list[str], harness: list[tuple[str, str]]) -> list[str]:
     if not harness:
         return []
@@ -420,17 +428,17 @@ def check(
     changed = _changed_since(recorded.commit)
     allowances = gate.claims(gate.ALLOW, recorded.commit, ROOT)
     harness = gate.claims(gate.HARNESS, recorded.commit, ROOT)
-    refused = gate.refusals(changed, allowances, harness, recorded=recorded.files)
-    # a full run goes on past a refusal, and an allowance of everything must not then allow everything
-    allowances = [(glob, why) for glob, why in allowances if not gate.allows_everything(glob, recorded.files)]
+    refused = gate.refusals(changed, allowances, harness, list(recorded.files))
     if refused and not full:
         heading = "This branch is not compared:"
         print(heading + "\n" + "\n".join(f"  {reason}" for reason in refused))
         _summarise(heading, refused, [])
         return 1
     # a full run compares commits already merged, which may hold a harness change and a change to the app
-    # that landed apart: what would refuse one branch is said, and the comparison made all the same
-    notes = [f"in these commits: {reason}" for reason in refused] + _harness_notes(changed, harness)
+    # that landed apart: what would refuse one branch is said and compared all the same, less what the gate
+    # refuses
+    allowances, dropped = _honoured(allowances, list(recorded.files))
+    notes = [f"in these commits: {reason}" for reason in refused] + dropped + _harness_notes(changed, harness)
 
     executed = load_executed(base_out)
     selection = None if full else _choose(changed, _added_or_removed(recorded.commit), executed)
