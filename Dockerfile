@@ -20,11 +20,21 @@ RUN apk add \
     subversion \
     tzdata \
     --no-cache
-# Note: this creates /root/.local/bin
-RUN pipx install uv
 RUN npm install -g corepack
 RUN npm install -g vite
+# The uv that .tool-versions names, which is the one CI uses. The copy comes last, so a change to
+# .tool-versions rebuilds this layer and nothing before it. This creates /root/.local/bin.
+COPY .tool-versions /tmp/.tool-versions
+RUN version="$(sed -En 's/^uv +([^ ]+).*/\1/p' /tmp/.tool-versions)" \
+    && pipx install "uv==${version}" \
+    && rm /tmp/.tool-versions
 ENV PATH="/root/.local/bin:${PATH}"
+
+# The Python that .python-version names, which is the one production and CI run. uv prefers it to
+# the python3 of the image, which stays for pipx. A change to .python-version rebuilds this layer.
+COPY .python-version /tmp/.python-version
+RUN uv python install "$(cat /tmp/.python-version)" \
+    && rm /tmp/.python-version
 
 # Don't pollute directory structure with __pycache__
 ENV PYTHONPYCACHEPREFIX='/tmp'

@@ -230,8 +230,8 @@ container-snapshot-base:
 container-snapshot-full:
 	scripts/container.sh make snapshot-full SNAPSHOT_REF=$(SNAPSHOT_REF)
 
-# Reproduce a CI matrix version locally. SQLAlchemy's async engine only works on
-# 3.14 because we depend on greenlet directly, so this is worth being able to run.
+# The tests in a venv of their own on Python 3.14, as `SR_PYTHON=3.14` makes it. 3.14 is also the
+# project's default now, so this repeats container-test; give SR_PYTHON another version to try it.
 container-test-py314:
 	SR_PYTHON=3.14 scripts/container.sh make test
 

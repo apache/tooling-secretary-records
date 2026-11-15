@@ -11,11 +11,10 @@ permissions:
   contents: read
 
 env:
-  # The one version the quality job runs on. Not "the latest": the matrix below goes to
-  # 3.14, and what the ratchet measures is a property of the code rather than of the
-  # interpreter, so it wants one version pinned rather than the newest one tracked.
-  QUALITY_PY_VERSION: '3.13'
-  UV_VERSION: '0.12.2'
+  # The one version the quality job runs on. Not "the latest": what the ratchet measures is a
+  # property of the code rather than of the interpreter, so it wants one version pinned rather
+  # than the newest one tracked.
+  QUALITY_PY_VERSION: '3.14'
 
 # Every job runs on a GitHub-hosted runner, on an image named outright: `ubuntu-24.04` rather than
 # `ubuntu-latest`, so that the image moving under a job is a change to this file and not a red run
@@ -30,8 +29,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version:
-          - '3.12'
-          - '3.13'
           - '3.14'
     steps:
       # The checkout comes first now: what installs the packages is a script in this
@@ -50,7 +47,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: .tool-versions
+          python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
         run: uv sync --frozen --no-dev
@@ -63,7 +61,7 @@ jobs:
       # pay for it twice over for an answer that does not differ.
       - name: Run tests
         run: |
-          uv run pytest -rs -n auto ${{ matrix.python-version == '3.12' && '--cov=app --cov-report=json' || '' }}
+          uv run pytest -rs -n auto ${{ matrix.python-version == '3.14' && '--cov=app --cov-report=json' || '' }}
 
       # The base this branch is measured against: the readings the run on main published
       # for the commit it would merge into. For a pull request that is the first parent of
@@ -71,13 +69,13 @@ jobs:
       # checked, so that a `workflow run` on a branch is measured too - a stacked pull
       # request gets no run of its own. See docs/quality-ratchet.md.
       - name: Work out the base commit
-        if: matrix.python-version == '3.12'
+        if: matrix.python-version == '3.14'
         id: base
         run: echo "sha=$(git rev-parse HEAD^1)" >> "$GITHUB_OUTPUT"
 
       - name: Fetch the base coverage
         id: base-cache
-        if: matrix.python-version == '3.12' && github.event_name != 'push'
+        if: matrix.python-version == '3.14' && github.event_name != 'push'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: state/quality-readings.json
@@ -89,7 +87,7 @@ jobs:
       # continue-on-error because a base we cannot measure is not the branch's fault: the
       # readings file then stays absent and the check reports the meter as unmeasured.
       - name: Measure the base coverage, when the cache had none
-        if: matrix.python-version == '3.12' && github.event_name != 'push' && steps.base-cache.outputs.cache-hit != 'true'
+        if: matrix.python-version == '3.14' && github.event_name != 'push' && steps.base-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: |
           git worktree add --detach ../base "${{ steps.base.outputs.sha }}"
@@ -99,7 +97,7 @@ jobs:
           git worktree remove --force ../base
 
       - name: Check the coverage floor
-        if: matrix.python-version == '3.12' && github.event_name != 'push'
+        if: matrix.python-version == '3.14' && github.event_name != 'push'
         run: |
           uv run scripts/ci/quality.py check --base state/quality-readings.json \
             --meter python-coverage --require-coverage
@@ -108,13 +106,13 @@ jobs:
       # the pull request, against this same reading. Checking again here would only be
       # able to fail after the fact, on a commit nobody can now change.
       - name: Publish the coverage for branches to measure against
-        if: matrix.python-version == '3.12' && github.event_name == 'push'
+        if: matrix.python-version == '3.14' && github.event_name == 'push'
         run: |
           uv run scripts/ci/quality.py readings --out state/quality-readings.json \
             --meter python-coverage
 
       - name: Save it for them
-        if: matrix.python-version == '3.12' && github.event_name == 'push'
+        if: matrix.python-version == '3.14' && github.event_name == 'push'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: state/quality-readings.json
@@ -143,12 +141,12 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.12'
+          python-version-file: .python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: .tool-versions
 
       - name: Install dependencies
         run: uv sync --frozen --no-dev
@@ -305,7 +303,8 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: .tool-versions
+          python-version: ${{ env.QUALITY_PY_VERSION }}
 
       - name: Install Python dependencies
         run: uv sync --frozen --all-groups
@@ -369,12 +368,12 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.12'
+          python-version-file: .python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: .tool-versions
 
       - name: Install Python dependencies
         run: uv sync --frozen --no-dev
@@ -434,10 +433,10 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # What a deployment installs is `requirements.txt`, which is exported without the dependency groups.
+  # What a deployment installs is `uv.lock`, without the dependency groups.
   # The jobs above install the `test` group as well, so a package that only that group declares is
   # present in every one of them and absent in production, where the server fails to start on its
-  # first import. This job installs the file alone and imports the application from it.
+  # first import. This job installs the lock file without groups and imports the application from it.
   production-install:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -448,18 +447,16 @@ jobs:
 
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.12'
+          python-version-file: .python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
-          version: ${{ env.UV_VERSION }}
+          version-file: .tool-versions
 
-      # `--no-deps`: the file lists every package, pinned, so resolving anything else would hide what it lacks.
-      - name: Install requirements.txt alone
-        run: |
-          uv venv --python 3.12 "$RUNNER_TEMP/production"
-          uv pip install --python "$RUNNER_TEMP/production/bin/python" --no-deps -r requirements.txt
+      # `--frozen`: install what uv.lock says and resolve nothing. `--no-default-groups`: what production installs.
+      - name: Install uv.lock without groups
+        run: UV_PROJECT_ENVIRONMENT="$RUNNER_TEMP/production" uv sync --frozen --no-default-groups
 
       - name: Import the application
         run: '"$RUNNER_TEMP/production/bin/python" -I scripts/ci/production_import.py'

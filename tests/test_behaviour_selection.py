@@ -60,6 +60,8 @@ EXAMPLES = {
     "config.yaml.example": "config.yaml.example",
     "uv.lock": "uv.lock",
     "pyproject.toml": "pyproject.toml",
+    ".python-version": ".python-version",
+    ".tool-versions": ".tool-versions",
     "assets/yarn.lock": "assets/yarn.lock",
     "assets/package.json": "assets/package.json",
     "Makefile": "Makefile",

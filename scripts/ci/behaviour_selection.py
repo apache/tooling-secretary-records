@@ -44,6 +44,9 @@ if TYPE_CHECKING:
 
 PACKAGE: Final = "app"
 
+DEPENDENCIES: Final = ("uv.lock", "pyproject.toml", ".python-version", ".tool-versions")
+"""What the Python environment of a checkout is made from."""
+
 EVERYTHING_WHEN: Final = (
     # what code reaches without running a function the map could see
     "app/**/templates/**",
@@ -62,8 +65,7 @@ EVERYTHING_WHEN: Final = (
     "scripts/ci/trailers.py",
     "config.yaml.example",
     # the dependencies, and what builds and runs it
-    "uv.lock",
-    "pyproject.toml",
+    *DEPENDENCIES,
     "assets/yarn.lock",
     "assets/package.json",
     "Makefile",

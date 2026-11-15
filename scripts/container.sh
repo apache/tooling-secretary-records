@@ -186,7 +186,9 @@ inner='
         if [ -n "${SR_PYTHON:-}" ]; then
             # a venv of its own, so the pinned one in the volume is left alone
             UV_PROJECT_ENVIRONMENT="/tmp/venv-${SR_PYTHON}"
-            export UV_PROJECT_ENVIRONMENT
+            # UV_PYTHON as well as --python: the later `uv run` must find the venv built here
+            UV_PYTHON="$SR_PYTHON"
+            export UV_PROJECT_ENVIRONMENT UV_PYTHON
             uv python install "$SR_PYTHON" >&2
             uv sync --frozen --python "$SR_PYTHON" >&2
         fi

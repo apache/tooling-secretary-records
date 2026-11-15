@@ -84,7 +84,7 @@ import tempfile
 from typing import TYPE_CHECKING, Any, Final
 
 import behaviour_gate as gate
-from behaviour_selection import compared, measure, select
+from behaviour_selection import DEPENDENCIES, compared, measure, select
 
 if TYPE_CHECKING:
     from behaviour_selection import Selection
@@ -204,7 +204,7 @@ def record(out: pathlib.Path) -> int:
 
 
 def _dependencies_differ(sha: str) -> bool:
-    return subprocess.run(["git", "diff", "--quiet", sha, "--", "uv.lock", "pyproject.toml"], cwd=ROOT).returncode != 0
+    return subprocess.run(["git", "diff", "--quiet", sha, "--", *DEPENDENCIES], cwd=ROOT).returncode != 0
 
 
 def _record_with_its_own(sha: str, out: pathlib.Path) -> None:
