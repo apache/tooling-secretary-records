@@ -15,11 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
+from __future__ import annotations
+
 import logging
 import pathlib
 import shutil
 import tempfile
-from collections.abc import AsyncIterator, Iterator
+from typing import TYPE_CHECKING
 
 import alembic.command
 import pytest
@@ -29,6 +31,9 @@ import yaml
 from app import config as app_config_module
 from app import db
 from app.webapp import create_app
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Iterator
 
 APP_DIR = pathlib.Path(__file__).parent.parent.absolute()
 
