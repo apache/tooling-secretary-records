@@ -97,7 +97,7 @@ def context_processor() -> dict[str, Any]:
             return f"/assets/{_MANIFEST[file_path]['file']}"
         # The two ways the manifest can fail to name a file: no entry at all, or an entry
         # that is not the shape vite writes.
-        except (KeyError, TypeError):
+        except KeyError, TypeError:
             _LOGGER.debug("did not find asset '%s'", file_path)
             return f"/assets/{file_path}"
 
