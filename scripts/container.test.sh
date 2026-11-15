@@ -422,7 +422,8 @@ isolated env SR_TIMEOUT=1 "$script" sleep 5
 [ "$status" -ne 0 ] || fail "the deadline applies without a container, or a hung command is never stopped"
 
 # What needs a container of its own is refused rather than run as something else: a
-# `container-test-py314` that ran on the default Python would report a different answer.
+# `container-test-py314` that ran in the checkout would report on the checkout's venv, not on the
+# venv of its own that SR_PYTHON builds.
 isolated env SR_PYTHON=3.14 "$script" true
 [ "$status" -eq 2 ] || fail "SR_PYTHON is refused, not ignored"
 isolated env SR_DETACH=1 "$script" true

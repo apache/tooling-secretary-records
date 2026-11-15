@@ -265,8 +265,9 @@ The seven fast meters run in the `quality` job of
 and the two installs.
 
 The two coverage meters need a suite to have run, so they live in the jobs that
-run one: `python-coverage` in the `test` job (on 3.12 only - the number is a
-property of the tests, not the interpreter), `frontend-coverage` in the
+run one: `python-coverage` in the `test` job (on one Python version only - the number
+follows the interpreter a little: BAT read the same commit as 90.91% on 3.12 and 90.69% on
+3.14, so a change of the interpreter needs a `Quality-Allow:`), `frontend-coverage` in the
 `frontend` job. Each restores its own cache entry, because each is written by a
 different job. Run locally without a coverage report, they skip with a note rather
 than failing.

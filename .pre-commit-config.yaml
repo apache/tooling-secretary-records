@@ -76,11 +76,9 @@ repos:
     - id: zizmor
       args: [ --min-severity, low ]
 - repo: https://github.com/astral-sh/uv-pre-commit
-  rev: 0.9.26
+  rev: 0.13.6
   hooks:
     - id: uv-lock
-    - id: uv-export
-      args: [ --frozen, --output-file, requirements.txt, --no-default-groups, --quiet ]
 - repo: local
   hooks:
     - id: forbid-secure-context-only-apis

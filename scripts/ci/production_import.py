@@ -15,11 +15,11 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Import every module of `app` and build the application, with only what `requirements.txt` installs, and
+"""Import every module of `app` and build the application, with only what `uv sync --no-default-groups` installs, and
 check that every package the code imports anywhere, a function body included, is installed.
 
-Run it in an environment made from `requirements.txt` alone, which is what a deployment installs. The test
-suite cannot say whether that file is complete: it runs with the `test` group installed as well, so a
+Run it in an environment made from `uv.lock` without groups, which is what a deployment installs. The test
+suite cannot say whether the project's dependencies are complete: it runs with the `test` group installed as well, so a
 package that only the tests declare is present there and absent in production. The server imports every
 route when it starts, so one such import stops the whole application. An import inside a function runs
 later, so only the second check sees it.

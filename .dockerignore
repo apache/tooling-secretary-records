@@ -1,4 +1,7 @@
 # Ignore all by default
 **
 
-# Nothing is currently copied during the build phase
+# Only .tool-versions and .python-version are copied during the build phase: the Dockerfile reads
+# the uv version and the Python version from them
+!.tool-versions
+!.python-version

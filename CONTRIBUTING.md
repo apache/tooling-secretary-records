@@ -143,14 +143,21 @@ refuses a command line that names `SR_ISOLATED`, unless the command only reads t
 script written to a file and run, a name a command substitution prints, and a name
 built from pieces are not seen. A variable the agent can set is not a boundary.
 
-The box needs `python3` (3.12+), `uv`, `git`, `jq`, `corepack` (then `make init`),
-and for the e2e suite `node` and the system libraries Chromium runs on.
+The box needs `python3` (for pipx), `uv` 0.12.2 or newer (`pipx install uv`), `git`, `jq`,
+`corepack` (then `make init`), and for the e2e suite `node` and the system libraries Chromium
+runs on. `required-version` in `pyproject.toml` sets the lowest uv, and an older uv stops every
+`uv` command. `.tool-versions` pins the uv that CI and the dev container install. `.python-version`
+pins the Python that production runs (3.14), so uv uses it here too. It downloads that Python when
+it is missing; where downloads are off, run `uv python install 3.14`. The dev container follows
+`.python-version` as well. Its image is built once, so when the `Dockerfile`, `.python-version` or
+`.tool-versions` changes, remove the old image (`podman rmi` of the dev image) and let the next
+`make container-*` build it again.
 
 ## Architecture Overview
 
 | Layer | Technology | Location |
 | ----- | ---------- | -------- |
-| Backend | Python 3.12+ / Quart (async) via `asfquart` | `app/` |
+| Backend | Python 3.14+ / Quart (async) via `asfquart` | `app/` |
 | Frontend | Svelte 5 / TypeScript / Vite | `assets/src/` |
 | Database | SQLite / SQLModel / Alembic | `app/db/` |
 | Templates | Jinja2 | `app/client/templates/` |
@@ -368,8 +375,7 @@ This runs the following checks on all files:
 - **check-yaml**, **check-toml** — YAML/TOML validation
 - **end-of-file-fixer**, **trailing-whitespace**, **mixed-line-ending**
 - **insert-license** — Ensures Apache 2.0 license headers on Python files
-- **uv-lock**, **uv-export** — Keeps `uv.lock` and `requirements.txt` in
-  sync
+- **uv-lock** — Keeps `uv.lock` in sync with `pyproject.toml`
 
 ### Running tests
 
@@ -407,7 +413,7 @@ tree bind-mounted:
 make container-verify       # check, lint, test and quality: what gates a push
 make container-check        # the pre-commit hooks
 make container-test         # pytest + vitest
-make container-test-py314   # the same, on the Python 3.14 CI matrix version
+make container-test-py314   # the same, in a venv of its own on Python 3.14 (also the default)
 make e2e-test               # Playwright, app and browser both containerised
 make container-shell        # an interactive shell in the container
 ```
