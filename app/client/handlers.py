@@ -17,12 +17,14 @@
 
 """Error pages for the CLIENT blueprint: a browser that asked for a page gets a page back."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import quart
-from werkzeug.exceptions import HTTPException
 
 from . import CLIENT
+
+if TYPE_CHECKING:
+    from werkzeug.exceptions import HTTPException
 
 
 @CLIENT.errorhandler(403)
