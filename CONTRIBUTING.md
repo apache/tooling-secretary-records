@@ -355,7 +355,7 @@ This runs the following checks on all files:
 - **ruff** — Linting and formatting (rules: isort, pycodestyle, pyflakes,
   pep8-naming, ruff-checks, flake8-tidy-imports, flake8-type-checking,
   pyupgrade)
-- **pyright** — Static type checking (Python 3.12, excludes tests and
+- **pyright** — Static type checking (Python 3.14, excludes tests and
   migrations)
 
 **Templates & styles:**
@@ -453,7 +453,7 @@ itself, for the same reason.
 ### Ruff configuration
 
 Ruff is configured in `pyproject.toml` with a line length of 120 and
-Python 3.12 target. Key rule sets: `E`, `W`, `F`, `G`, `I`, `LOG`, `N`, `RUF`,
+Python 3.14 target. Key rule sets: `E`, `W`, `F`, `G`, `I`, `LOG`, `N`, `RUF`,
 `TID`, `TC`, `UP`.
 
 `G` and `LOG` settle how a log line is written. The message is a format string

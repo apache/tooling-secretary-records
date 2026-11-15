@@ -86,7 +86,7 @@ exclude_lines = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py312"
+target-version = "py314"
 
 [tool.ruff.lint]
 ignore = [
@@ -97,6 +97,13 @@ ignore = [
   # shell needs its own argument.
   "S603",
   "S607",
+  # Python 3.14 evaluates annotations lazily, so with `target-version = "py314"` ruff asks for every
+  # import that only an annotation uses to move under `if TYPE_CHECKING:`. Pydantic and quart-schema
+  # read some of those annotations at runtime, so the move needs a look at each file. It is its own
+  # change, the one that apache/tooling-agenda#1104 tracks for BAT.
+  "TC001",
+  "TC002",
+  "TC003",
 ]
 select = [
   "I",     # isort
@@ -157,7 +164,7 @@ defineConstant = { DEBUG = true }
 reportMissingImports = "error"
 reportMissingTypeStubs = false
 venv=".venv"
-pythonVersion = "3.12"
+pythonVersion = "3.14"
 executionEnvironments = [
-  { root = ".", pythonVersion = "3.12" }
+  { root = ".", pythonVersion = "3.14" }
 ]
