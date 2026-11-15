@@ -18,13 +18,15 @@
 
 import datetime
 import logging
-import pathlib
-from typing import Final
+from typing import TYPE_CHECKING, Final
 
 import sqlalchemy
 import sqlalchemy.ext.asyncio
 import sqlalchemy.sql as sql
 from sqlalchemy.orm import registry
+
+if TYPE_CHECKING:
+    import pathlib
 
 _LOGGER: Final[logging.Logger] = logging.getLogger(__name__)
 

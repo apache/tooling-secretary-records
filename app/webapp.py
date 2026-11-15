@@ -21,7 +21,7 @@ import logging
 import logging.handlers
 import os
 import pathlib
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import asfquart
 import asfquart.base as base
@@ -29,7 +29,9 @@ import asfquart.generics
 import quart_schema
 
 from app import access, basic_auth, db, security_headers
-from app.config import AppConfig
+
+if TYPE_CHECKING:
+    from app.config import AppConfig
 
 # The plain oauth endpoints, not the OIDC ones asfquart now defaults to, as BAT does. Once the
 # board approves it, these become the OIDC capable endpoints, which support 2FA: the same hosts

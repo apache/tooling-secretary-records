@@ -36,7 +36,10 @@ import pkgutil
 import shutil
 import sys
 import tempfile
-from collections.abc import Iterator
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 
