@@ -160,7 +160,7 @@ if touches '^app/(api/routes|client|admin)/|^assets/src/js/components/'; then
         'control is theirs, and a route that refuses a role has to say so.'
 fi
 
-if touches '^(pyproject\.toml|uv\.lock)$'; then
+if touches '^(pyproject\.toml|uv\.lock|\.python-version|\.tool-versions)$'; then
     say 'dependencies' \
         'uv.lock is the source of truth. Production installs it with uv sync --frozen.'
 fi
