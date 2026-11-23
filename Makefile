@@ -30,14 +30,15 @@ certs: state/cert.pem state/key.pem
 # modified or untracked - which is what a commit needs. Every file instead where the list
 # cannot say what a change reaches - a deletion, a rename, a config file, no merge base:
 # scripts/ci/changed.py. `check-all` runs every hook over every file: `verify` uses it before a
-# push, and CI's analyze job runs the same.
+# push. Untracked files are among them, which `prek run --all-files` leaves out: a gate whose key counts
+# them would otherwise pass without a hook having read one. CI's analyze job runs prek on a clean checkout.
 CHECK_REF ?= origin/main
 
 check:
 	@uv run scripts/ci/changed.py --ref $(CHECK_REF)
 
 check-all:
-	uv run prek run --all-files
+	uv run scripts/ci/changed.py --all
 
 # svelte-check and eslint - prettier's own check runs separately (`check`'s yarn-format hook)
 # because it is fast where this is not. Kept out of `check` for that reason, but it does run
