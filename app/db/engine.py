@@ -21,8 +21,8 @@ import logging
 from typing import TYPE_CHECKING, Final
 
 import sqlalchemy
+import sqlalchemy.event
 import sqlalchemy.ext.asyncio
-import sqlalchemy.sql as sql
 from sqlalchemy.orm import registry
 
 if TYPE_CHECKING:
@@ -84,6 +84,27 @@ class Session(sqlalchemy.ext.asyncio.AsyncSession):
     pass
 
 
+_PRAGMAS: Final[tuple[str, ...]] = (
+    "PRAGMA journal_mode=WAL",
+    "PRAGMA wal_autocheckpoint=16",
+    "PRAGMA journal_size_limit=1536",
+    "PRAGMA synchronous=NORMAL",
+    "PRAGMA cache_size=-64000",
+    "PRAGMA mmap_size=268435456",
+    "PRAGMA foreign_keys=ON",
+    "PRAGMA busy_timeout=5000",
+)
+
+
+def _configure_connection(dbapi_connection: object, _record: object) -> None:
+    cursor = dbapi_connection.cursor()  # type: ignore[attr-defined]
+    try:
+        for pragma in _PRAGMAS:
+            cursor.execute(pragma)
+    finally:
+        cursor.close()
+
+
 async def create_async_engine(db_path: pathlib.Path) -> sqlalchemy.ext.asyncio.AsyncEngine:
     sqlite_url = f"sqlite+aiosqlite:///{db_path!s}"
 
@@ -98,18 +119,11 @@ async def create_async_engine(db_path: pathlib.Path) -> sqlalchemy.ext.asyncio.A
         },
     )
 
-    # Set SQLite pragmas for better performance
-    # Use 64 MB for the cache_size, and 5000ms for busy_timeout
-    # also applied suggestions for WAL from
+    # SQLite keeps these per connection, and the pool opens more than one: each connection the pool
+    # opens is configured as it opens, or a second one would accept a reference to a row that is not
+    # there (foreign_keys is off by default). journal_mode=WAL is kept in the database file.
+    # 64 MB for the cache_size and 5000 ms for busy_timeout; the WAL settings follow
     # https://wiki.mozilla.org/Performance/Avoid_SQLite_In_Your_Next_Firefox_Feature
-    async with async_engine.begin() as conn:
-        await conn.execute(sql.text("PRAGMA journal_mode=WAL"))
-        await conn.execute(sql.text("PRAGMA wal_autocheckpoint=16"))
-        await conn.execute(sql.text("PRAGMA journal_size_limit=1536"))
-        await conn.execute(sql.text("PRAGMA synchronous=NORMAL"))
-        await conn.execute(sql.text("PRAGMA cache_size=-64000"))
-        await conn.execute(sql.text("PRAGMA mmap_size=268435456"))
-        await conn.execute(sql.text("PRAGMA foreign_keys=ON"))
-        await conn.execute(sql.text("PRAGMA busy_timeout=5000"))
+    sqlalchemy.event.listen(async_engine.sync_engine, "connect", _configure_connection)
 
     return async_engine
