@@ -60,15 +60,17 @@ def pinned(monkeypatch: pytest.MonkeyPatch) -> Any:
     with world.pin_the_clock():
         world.pin_the_assets(monkeypatch)
         world.seed_the_shuffle()
+        # Startup is noted from before the app is built: what create_app runs - the blueprints it
+        # registers, the context processor every page and API call goes through - is what every part
+        # stands on, and a part that only seemed to run it would hide a change to it from the others.
+        executed.begin("startup")
         yield
 
 
 @pytest.fixture
 def app(pinned: None, app: Any) -> Any:
-    """The suite's app, built after the pins rather than before them. What its startup runs - the
-    migration check, the readers signing in - is noted from here as `startup`: building the app only
-    imports it, which says nothing about what a part stands on."""
-    executed.begin("startup")
+    """The suite's app, built after the pins rather than before them, and so after startup began to be
+    noted (`pinned`): building it, the migration check and the readers signing in are all `startup`."""
     return app
 
 
