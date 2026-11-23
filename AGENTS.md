@@ -23,6 +23,34 @@ What the tool must do is [REQUIREMENTS.md](REQUIREMENTS.md), and the tool it
 replaces is [WORKBENCH.md](WORKBENCH.md). Both are agreed with the Secretary:
 change them by agreement, never as a side effect of a feature.
 
+## Non-negotiables of this repository
+
+- **The queue holds personal data, and nothing here may leak it.** ICLAs and the
+  rest carry names, residence addresses and signatures (REQUIREMENTS.md, N-3).
+  Logs, telemetry, error messages and test output never contain document
+  contents or extracted fields. Fixtures are synthetic - never a real submission,
+  not even redacted (N-8) - so a dev instance and the test suites never need
+  production mail. Every route that reads the queue is role-gated, not only the
+  ones that change it (R-1).
+- **Before any interface change, read the design book *and* load the
+  `frontend-design` skill.** Both, together, every time.
+  [`docs/design-book.html`](docs/design-book.html) is the design system this
+  tool shares with BAT (REQUIREMENTS.md, N-6 and section 5) — the chip
+  vocabulary, the colour and type tokens, the component set, the keyboard
+  model — and the skill is how to make well the choices the book leaves open.
+  Neither is enough alone: the book by itself yields a change that is
+  consistent and characterless, the skill by itself yields a good idea phrased
+  in the wrong vocabulary. Read the chapter that covers what you are touching
+  before you touch it, and follow
+  [CONTRIBUTING.md](CONTRIBUTING.md#design-changes) for which changes may just
+  be built, which need a line in the PR description, and which need an issue and
+  a change to the book. The copy here is BAT's; BAT's is the source, so a change
+  to the book is made there first and copied here.
+
+The shared non-negotiables are in AGENTS.shared.md. Where it names a `make` target this repository does not
+have yet (`make container-test-fast`: the fast stage of `scripts/ci/fast_stage.py` is in the kit, and nothing
+here runs it), use `make container-pytest` for the question you have.
+
 ## Project shape
 
 | Layer | Technology | Location |

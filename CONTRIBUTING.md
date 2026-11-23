@@ -118,7 +118,7 @@ Without VS Code or Compose, `make container-keep` starts the dev server in a
 detached container on <http://localhost:8080>, and `make container-stop` takes
 it away. It needs a `config.yaml` (step 2).
 
-#### A disposable environment
+#### A disposable environment (isx)
 
 In an environment that is thrown away whole - a virtual machine or sandbox with a
 filesystem of its own and none of your credentials - the toolchain may run without a
@@ -346,9 +346,10 @@ This runs the following checks on all files:
 - **a type assertion that erases the check** — `as unknown as T` and `as any`
   in the frontend and the specs.
 - **a committed `.env`** — it would hold credentials.
-- **the scripts' own tests** — the Bash guard, the review reader, the preflight
-  scan, the container wrapper, node_modules provisioning and the worktree
-  cleanup each have a `.test.sh` beside them, run when they change.
+- **the shared scripts** — the Bash guard, the review reader, the preflight
+  scan, the container wrapper and the rest come from apache/tooling-devkit,
+  which tests them; here `scripts/devkit-sync.sh --check` holds each copy to
+  the kit.
 
 **Python:**
 
@@ -529,10 +530,12 @@ the ratchet holds down.
 | `make dev` | Start dev server with Vite watcher and Quart |
 | `make dev-server` | Start dev server only (no asset watcher) |
 | `make build` | Build frontend assets for production |
-| `make check` | Run all pre-commit hooks |
+| `make check` | Run the pre-commit hooks over what changed since `origin/main` |
+| `make check-all` | Run every hook over every file |
 | `make lint` | Run svelte-check and eslint over the frontend |
 | `make test` | Run pytest and vitest (parallel; `PYTEST_WORKERS=1` for serial) |
-| `make verify` | `check`, `lint`, `test`, `snapshot` and `quality`, behind one exit code |
+| `make verify` | `check-all`, `lint`, `test-python`, `test-frontend`, `snapshot` and `quality` at once, behind one exit code; a stage that passed runs again only when what it reads changes |
+| `make verify-fresh` | The same, every stage run whether it passed before or not |
 | `make quality` | Check the quality ratchet against the measured merge base |
 | `make quality-show` | Print the current readings, worst first |
 | `make quality-base` | Measure the merge base, into `state/quality-base.json` |
@@ -543,7 +546,9 @@ the ratchet holds down.
 | `make sync-dev` | Install all dependencies including dev tools |
 | `make certs` | Generate SSL certificates with mkcert |
 | `make container-verify` | `make verify` in the container, from the host |
+| `make container-verify-fresh` | `make verify-fresh` in the container, from the host |
 | `make container-check` | Run the pre-commit hooks in the container, from the host |
+| `make container-check-all` | Run every hook over every file in the container, from the host |
 | `make container-test` | Run pytest and vitest in the container, from the host |
 | `make container-test-py314` | Run the tests against Python 3.14 |
 | `make container-quality` | Run the quality ratchet in the container, from the host |
