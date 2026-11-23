@@ -1,6 +1,6 @@
 #!/bin/sh
 # What `docker compose up` runs (see compose.yaml): copy the tree in, make a certificate,
-# write a development config.yaml, and start the dev server.
+# write a development config.yaml with the roles of yours, and start the dev server.
 
 set -eu
 
@@ -57,13 +57,31 @@ else
     cp "$(mkcert -CAROOT)/rootCA.pem" state
 fi
 
-# The config.yaml copied from /mnt is the one CONTRIBUTING.md has you write, with its roles: kept.
-[ -f config.yaml ] || cp config.yaml.example config.yaml
+cp config.yaml.example config.yaml
 sed -i 's|host: localhost|host: 0.0.0.0|' config.yaml
 
 make sync
 make init
-# the frontend's dependencies, and a first bundle: the watcher `make dev` starts imports its plugins
+# The frontend's dependencies, which the watcher `make dev` starts imports. The bundle `make build`
+# also writes is thrown away when the watcher starts; it is the same command the devcontainer runs.
 make build
+
+# The roles of the config.yaml CONTRIBUTING.md has you write, and nothing else of it: the rest of a file
+# written for the host - its port, a mail server, its paths - does not fit the container.
+if [ -f /mnt/config.yaml ]; then
+    uv run python - <<'PYTHON'
+import pathlib
+
+import yaml
+
+mine = yaml.safe_load(pathlib.Path("/mnt/config.yaml").read_text()) or {}
+if "roles" in mine:
+    path = pathlib.Path("config.yaml")
+    config = yaml.safe_load(path.read_text()) or {}
+    config["roles"] = mine["roles"]
+    path.write_text(yaml.safe_dump(config, sort_keys=False))
+    print("config.yaml: the roles from your config.yaml")
+PYTHON
+fi
 
 make dev

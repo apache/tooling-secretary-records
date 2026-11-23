@@ -188,3 +188,16 @@ async def test_a_bundle_that_is_not_there_is_never_cached(running_app):
 
     assert response.status_code == 404
     assert response.headers["Cache-Control"] == "no-store"
+
+
+async def test_a_bundle_that_is_there_is_cached_for_good(running_app, tmp_path, monkeypatch):
+    """Its name changes with what it holds, so a bundle that exists never changes."""
+    from app.client import CLIENT
+
+    (tmp_path / "bundled").mkdir()
+    (tmp_path / "bundled" / "page-abc123.js").write_text("export {};\n")
+    monkeypatch.setattr(CLIENT, "static_folder", str(tmp_path))
+    response = await running_app.test_client().get("/assets/bundled/page-abc123.js")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "public, max-age=31536000, immutable"
