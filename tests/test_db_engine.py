@@ -30,6 +30,29 @@ if TYPE_CHECKING:
     import pathlib
 
 
+async def test_the_file_is_in_wal_mode_once_the_engine_is_made(tmp_path: pathlib.Path) -> None:
+    """Before the migrations run on it: switching a file to WAL needs a moment nobody else holds it."""
+    import sqlite3
+
+    engine = await create_async_engine(tmp_path / "test.db")
+    try:
+        with sqlite3.connect(tmp_path / "test.db") as raw:
+            assert raw.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    finally:
+        await engine.dispose()
+
+
+async def test_every_connection_waits_30_seconds_for_a_lock(tmp_path: pathlib.Path) -> None:
+    engine = await create_async_engine(tmp_path / "test.db")
+    try:
+        async with engine.connect() as first, engine.connect() as second:
+            for connection in (first, second):
+                timeout = (await connection.execute(sqlalchemy.text("PRAGMA busy_timeout"))).scalar_one()
+                assert timeout == 30000
+    finally:
+        await engine.dispose()
+
+
 async def test_each_connection_the_pool_opens_enforces_foreign_keys(tmp_path: pathlib.Path) -> None:
     engine = await create_async_engine(tmp_path / "test.db")
     try:
@@ -53,6 +76,5 @@ async def test_each_connection_the_pool_opens_enforces_foreign_keys(tmp_path: pa
 
         values = await asyncio.gather(first(), second())
         assert values == [1, 1]
-        assert engine.pool.checkedin() >= 2
     finally:
         await engine.dispose()

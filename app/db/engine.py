@@ -92,7 +92,6 @@ _PRAGMAS: Final[tuple[str, ...]] = (
     "PRAGMA cache_size=-64000",
     "PRAGMA mmap_size=268435456",
     "PRAGMA foreign_keys=ON",
-    "PRAGMA busy_timeout=5000",
 )
 
 
@@ -122,8 +121,14 @@ async def create_async_engine(db_path: pathlib.Path) -> sqlalchemy.ext.asyncio.A
     # SQLite keeps these per connection, and the pool opens more than one: each connection the pool
     # opens is configured as it opens, or a second one would accept a reference to a row that is not
     # there (foreign_keys is off by default). journal_mode=WAL is kept in the database file.
-    # 64 MB for the cache_size and 5000 ms for busy_timeout; the WAL settings follow
-    # https://wiki.mozilla.org/Performance/Avoid_SQLite_In_Your_Next_Firefox_Feature
+    # 64 MB for the cache_size; the WAL settings follow
+    # https://wiki.mozilla.org/Performance/Avoid_SQLite_In_Your_Next_Firefox_Feature. How long a
+    # connection waits for a lock is the `timeout` above, 30 s, on every connection: a busy_timeout
+    # pragma here would replace it.
     sqlalchemy.event.listen(async_engine.sync_engine, "connect", _configure_connection)
+    # One connection now, so that the file exists and is in WAL mode before the migrations run on it
+    # and before requests share it: switching a file to WAL needs a moment nobody else holds it.
+    async with async_engine.connect():
+        pass
 
     return async_engine
