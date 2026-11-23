@@ -11,6 +11,16 @@ kind = "file"
 path = "state/quality-base.json"
 env = "QUALITY_BASE"
 
+[extras.python-coverage]
+# the quality ratchet reads these reports where `make test-coverage` and `yarn test --coverage` have left them;
+# they are ignored by git, so the files of the tree do not say when one changed
+kind = "file"
+path = "coverage.json"
+
+[extras.frontend-coverage]
+kind = "file"
+path = "assets/coverage/coverage-summary.json"
+
 [extras.trailers]
 # `Behaviour-Allow:` and `Quality-Allow:` are read from the messages of this branch's own commits
 kind = "trailers"
@@ -42,4 +52,4 @@ reads_makefile = true
 
 [[stages]]
 name = "quality"
-extras = ["quality-base", "trailers"]
+extras = ["quality-base", "python-coverage", "frontend-coverage", "trailers"]
