@@ -170,7 +170,7 @@ async def _read() -> tuple[IclaFields, Signed]:
     try:
         raw = json.loads(form.get("fields", "{}"))
         signing = Signing(form.get("signing", ""))
-    except (ValueError, TypeError, RecursionError):
+    except ValueError, TypeError, RecursionError:
         raise _RefusedError({"signing": "Choose how you sign"}) from None
     fields = _fields(raw)
     if isinstance(fields, dict):
