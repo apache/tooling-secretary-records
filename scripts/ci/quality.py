@@ -480,7 +480,10 @@ def _measure_worktree(sha: str, names: list[str]) -> dict[str, dict[str, float]]
             # eslint.config.js imports the packages it composes, and a fresh worktree has
             # none of them. Linking this checkout's is what makes the comparison one
             # toolchain reading two trees, rather than two installs that may differ.
-            (checkout / "assets" / "node_modules").symlink_to(quality_meters.NODE_BIN.parent, target_is_directory=True)
+            # a commit from before assets/ existed has no directory to hold the link
+            modules = checkout / "assets" / "node_modules"
+            modules.parent.mkdir(parents=True, exist_ok=True)
+            modules.symlink_to(quality_meters.NODE_BIN.parent, target_is_directory=True)
             quality_meters.TREE = checkout
             readings, _skipped = collect(names, require_reports=False)
         finally:

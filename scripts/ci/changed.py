@@ -57,6 +57,8 @@ def _git(*arguments: str) -> tuple[int, str]:
     return finished.returncode, finished.stdout
 
 
+# What untracked files count: those no .gitignore hides, as the gate's key counts them (verify.py, tree()).
+# A file hidden through .git/info/exclude or a global excludes file is still one a hook should read.
 def _listing(*arguments: str) -> str:
     """What git lists, or the end of the run: an empty answer from a git that failed is not "nothing changed",
     which would let `make check` succeed without running a hook."""
@@ -80,7 +82,7 @@ def selection(ref: str) -> tuple[list[str] | None, str]:
     listed = _listing("diff", "--name-status", "--no-renames", "-z", base)
     fields = [f for f in listed.split("\0") if f]
     changes = list(zip(fields[::2], fields[1::2], strict=True))
-    untracked = _listing("ls-files", "-z", "--others", "--exclude-standard")
+    untracked = _listing("ls-files", "-z", "--others", "--exclude-per-directory=.gitignore")
     files = sorted({path for _, path in changes} | {p for p in untracked.split("\0") if p})
 
     if deleted := sorted(path for kind, path in changes if kind == "D"):
@@ -94,7 +96,7 @@ def everything() -> list[str]:
     """Every file, untracked ones among them. Not `prek run --all-files`, which is the tracked files
     only: a new module that brought a deletion with it would go unchecked by the very run that
     checks every file."""
-    listed = _listing("ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    listed = _listing("ls-files", "-z", "--cached", "--others", "--exclude-per-directory=.gitignore")
     return sorted({p for p in listed.split("\0") if p and (ROOT / p).is_file()})
 
 
