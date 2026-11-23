@@ -34,7 +34,8 @@ It checks every file instead where the list cannot say what the change reaches:
   the tool reads. Markdown there is prose and checks only itself;
 - no merge base with `--ref`, where nothing says what changed.
 
-`make check-all` checks every file always, and `make verify` runs that before a push.
+`make check-all` (`--all`) checks every file always, untracked ones among them, and `make verify` runs that
+before a push.
 """
 
 from __future__ import annotations
@@ -56,6 +57,15 @@ def _git(*arguments: str) -> tuple[int, str]:
     return finished.returncode, finished.stdout
 
 
+def _listing(*arguments: str) -> str:
+    """What git lists, or the end of the run: an empty answer from a git that failed is not "nothing changed",
+    which would let `make check` succeed without running a hook."""
+    status, output = _git(*arguments)
+    if status != 0:
+        sys.exit(f"check: git {' '.join(arguments)} failed with status {status}, so no list of files can be trusted")
+    return output
+
+
 def _is_config(path: str) -> bool:
     home, _, name = path.rpartition("/")
     return home in _CONFIG_HOMES and not name.endswith(".md")
@@ -67,10 +77,10 @@ def selection(ref: str) -> tuple[list[str] | None, str]:
     if status != 0:
         return None, f"no merge base with {ref}, so every file"
     base = base.strip()
-    _, listed = _git("diff", "--name-status", "--no-renames", "-z", base)
+    listed = _listing("diff", "--name-status", "--no-renames", "-z", base)
     fields = [f for f in listed.split("\0") if f]
     changes = list(zip(fields[::2], fields[1::2], strict=True))
-    _, untracked = _git("ls-files", "-z", "--others", "--exclude-standard")
+    untracked = _listing("ls-files", "-z", "--others", "--exclude-standard")
     files = sorted({path for _, path in changes} | {p for p in untracked.split("\0") if p})
 
     if deleted := sorted(path for kind, path in changes if kind == "D"):
@@ -84,14 +94,18 @@ def everything() -> list[str]:
     """Every file, untracked ones among them. Not `prek run --all-files`, which is the tracked files
     only: a new module that brought a deletion with it would go unchecked by the very run that
     checks every file."""
-    _, listed = _git("ls-files", "-z", "--cached", "--others", "--exclude-standard")
+    listed = _listing("ls-files", "-z", "--cached", "--others", "--exclude-standard")
     return sorted({p for p in listed.split("\0") if p and (ROOT / p).is_file()})
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--ref", default="origin/main")
+    parser.add_argument("--all", action="store_true", help="every file, untracked ones among them: `make check-all`")
     args = parser.parse_args()
+    if args.all:
+        print("check: every file", flush=True)
+        return subprocess.run(["prek", "run", "--files", *everything()], cwd=ROOT).returncode
     files, said = selection(args.ref)
     print(f"check: {said}", flush=True)
     if files == []:

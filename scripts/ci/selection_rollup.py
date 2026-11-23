@@ -119,7 +119,7 @@ def _seen(raw: object, run: Run) -> Seen | None:
         run.head,
         run.id,
         raw.get("audited") is True,
-        verdict if verdict in VERDICTS else None,
+        verdict if isinstance(verdict, str) and verdict in VERDICTS else None,
         tuple(path for path in _listed(raw.get("changed")) if isinstance(path, str)),
         tuple(found for found in map(_failure, _listed(raw.get("failures"))) if found),
     )
