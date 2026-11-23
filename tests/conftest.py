@@ -104,8 +104,8 @@ async def running_app(app, monkeypatch, _migrated_db_template) -> AsyncIterator[
 
     test_app_context = quart.testing.app.TestApp(app, startup_timeout=120, shutdown_timeout=120)
     # __aenter__ inside the try: a startup that raises leaves the app half-started, and skipping
-    # __aexit__ then leaves the database engine undisposed - and aiosqlite's worker thread is
-    # not a daemon, so the whole suite wedges at interpreter exit waiting to join it.
+    # __aexit__ then leaves the database engine undisposed, with its connections open past the
+    # test that made them.
     try:
         await test_app_context.__aenter__()
         yield app
