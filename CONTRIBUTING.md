@@ -122,23 +122,23 @@ it away. It needs a `config.yaml` (step 2).
 
 In an environment that is thrown away whole - a virtual machine or sandbox with a
 filesystem of its own and none of your credentials - the toolchain may run without a
-container. Set `SR_ISOLATED=1` in the environment the agent starts in: in the
+container. Set `DEVKIT_ISOLATED=1` in the environment the agent starts in: in the
 template the environment is built from, or failing that in the managed settings,
 as root, while the template is built:
 
 ```sh
 f=/etc/claude-code/managed-settings.json
-jq '.env.SR_ISOLATED = "1"' "$f" > "$f.new" && mv "$f.new" "$f"
+jq '.env.DEVKIT_ISOLATED = "1"' "$f" > "$f.new" && mv "$f.new" "$f"
 chmod 644 "$f"
 ```
 
-Check it in a new instance: `env | grep SR_ISOLATED` must print `SR_ISOLATED=1`.
+Check it in a new instance: `env | grep DEVKIT_ISOLATED` must print `DEVKIT_ISOLATED=1`.
 Then the `make container-*` and `make e2e-*` commands run in the checkout without a
 container, and the Bash guard stops refusing the toolchain (see
 [AGENTS.md](AGENTS.md)).
 
 Do not set it in a command, or in a repository file the agent can edit. The guard
-refuses a command line that names `SR_ISOLATED`, unless the command only reads text
+refuses a command line that names `DEVKIT_ISOLATED`, unless the command only reads text
 (`git commit`, `grep`, `echo`). That stops a mistake and not a determined agent: a
 script written to a file and run, a name a command substitution prints, and a name
 built from pieces are not seen. A variable the agent can set is not a boundary.

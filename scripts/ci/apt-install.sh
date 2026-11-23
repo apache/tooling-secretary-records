@@ -20,18 +20,17 @@
 #
 #   scripts/ci/apt-install.sh subversion libldap2-dev libsasl2-dev
 #
-# One mirror is a single point of failure and both of the ones this repository has used have
-# been it. `azure.archive.ubuntu.com` began failing every request on 2026-08-18, which is why
-# #702 gave apt a timeout - its default is none, so a stalled fetch ran to the job's own
-# ceiling. On 2026-09-11 `archive.ubuntu.com` answered at 2 kB/s instead, which a timeout
-# does not help with: three retries all crawl, and eight jobs across two pull requests were
-# re-run, one of them cancelled at thirty minutes with apt still going.
+# One mirror is a single point of failure, and a mirror fails in two ways. It can refuse every
+# request, which a timeout turns into an error instead of a stall to the job's own ceiling. Or it
+# can answer at a few kB/s, which a timeout does not help with: three retries all crawl, and the
+# job runs on with apt still going.
 #
 # So the mirror is a list rather than a choice. On an EC2 instance - the ASF's self-hosted
 # runners are - the archive mirror inside the region is both the closest one and the one
 # Canonical's load does not reach, so it is tried first, and what the runner image shipped with
-# is the fallback. A GitHub-hosted runner, which is what .github/workflows/ asks for, is not one,
-# and where no region is found the image's own sources are used as they are.
+# is the fallback. A GitHub-hosted runner is not one, and where no region is found the image's
+# own sources are used as they are.
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 set -eu
 
 if [ "$#" -eq 0 ]; then
@@ -46,8 +45,8 @@ here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # sources.list.
 sources="/etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources"
 
-# The options #702 added, which still matter: a mirror that stalls is dropped and retried
-# rather than waited on, because apt's own default is to wait forever. The packages are kept
+# A mirror that stalls is dropped and retried rather than waited on, because apt's own default
+# is to wait forever. The packages are kept
 # after they are installed rather than swept, since keeping them is the point of the cache.
 apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15"
 apt_opts="$apt_opts -o Binary::apt::APT::Keep-Downloaded-Packages=true"
@@ -59,15 +58,15 @@ install_them() {
 
 # Where a job's cache of these packages lives, when the job passed one (see
 # .github/actions/apt-install). Empty means fetch them, which is what a run outside CI does.
-cache=${SR_APT_CACHE:-}
+cache=${DEVKIT_APT_CACHE:-}
 
 # Install what is in the cache, if what is in it is the whole of what was asked for.
 #
 # `dpkg` rather than apt, because the point is to need no index: the packages in there are
 # the closure apt worked out on a machine of this same image, so they install as they are.
 # The 40 MB of package index that `apt-get update` fetches is the expensive half of this
-# step - on 2026-09-11 it took six minutes where the packages themselves were 562 kB - so a
-# cache that still needed the index would save almost nothing.
+# step - on a slow mirror it takes minutes, where the packages themselves are a few hundred kB -
+# so a cache that still needed the index would save almost nothing.
 from_cache() {
     [ -n "$cache" ] && [ -d "$cache" ] || return 1
     set -- "$cache"/*.deb
@@ -117,12 +116,12 @@ if from_cache; then
 fi
 
 for file in $sources; do
-    [ -f "$file" ] && sudo cp -- "$file" "$file.sr-original"
+    [ -f "$file" ] && sudo cp -- "$file" "$file.devkit-original"
 done
 
 restore_sources() {
     for file in $sources; do
-        [ -f "$file.sr-original" ] && sudo cp -- "$file.sr-original" "$file"
+        [ -f "$file.devkit-original" ] && sudo cp -- "$file.devkit-original" "$file"
     done
 }
 

@@ -1,4 +1,5 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Give a checkout's own .venv and node_modules volumes a starting point, rather
 # than provisioning them from nothing.
 #
@@ -46,10 +47,10 @@ seed_volume() {
     # check above: one `volume create` then fails and takes the whole script down
     # with it under `set -e`, and worse, the loser would go on to use a volume the
     # winner is still filling. mkdir is the atomic primitive every shell has
-    # (Copilot, #601). The waiter does not seed: by the time the lock is gone the
+    # The waiter does not seed: by the time the lock is gone the
     # volume is there, and if it is not, uv and yarn provision it as they always
     # did for a checkout with nothing to copy.
-    _lock="${TMPDIR:-/tmp}/secretary-records-seed-$_volume.lock"
+    _lock="${TMPDIR:-/tmp}/devkit-seed-$_volume.lock"
     if ! mkdir "$_lock" 2>/dev/null; then
         echo "waiting for another run to finish seeding $_volume..." >&2
         _waited=0
@@ -64,7 +65,7 @@ seed_volume() {
     # e2e-container.sh sets one before this runs, to remove its application container -
     # and clearing it afterwards would leave the caller with no cleanup at all. That is
     # a leak on exactly one run, the first in a new worktree, which is the run this file
-    # exists for (Copilot, #650).
+    # exists for.
     #
     # An interrupted seed must not leave the lock behind for the next run to wait out, so
     # the trap fires on the way out however the subshell leaves - including normally,

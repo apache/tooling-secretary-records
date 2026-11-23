@@ -1,4 +1,5 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Make this checkout's node_modules volume match this checkout's lockfile.
 #
 # Runs inside the dev container, where the repository is bind-mounted and
@@ -11,10 +12,10 @@
 # after itself. yarn does not: it installs when asked and not otherwise, so
 # something here has to decide when to ask.
 #
-# What it used to ask was whether node_modules held a state file at all. That is
+# Asking whether node_modules holds a state file at all is not enough. That is
 # true of a volume seeded from another checkout - seed_volume copies the state
 # file along with everything else - so a worktree whose branch pinned a
-# dependency the seed did not have never installed it, and said so as a
+# dependency the seed did not have never installs it, and says so as a
 # type-check failure several layers down:
 #
 #     Error: Cannot find module '@testing-library/svelte'
@@ -33,16 +34,16 @@
 
 set -eu
 
-assets=${1:-/run/secretary-records/assets}
-stamp="$assets/node_modules/.sr-install-stamp"
-lock="$assets/node_modules/.sr-install-lock"
+assets=${1:-$(CDPATH='' cd -- "$(dirname -- "$0")/../assets" && pwd)}
+stamp="$assets/node_modules/.devkit-install-stamp"
+lock="$assets/node_modules/.devkit-install-lock"
 
 # The escape hatch for the deadlock this would otherwise be. `yarn install
 # --immutable` refuses a lockfile that disagrees with package.json, and this runs
 # in the preamble every container command goes through - so a half-finished
 # dependency change would lock you out of `make container-shell`, which is where
 # the repair has to be run from. Skipping is per-invocation and says so.
-if [ "${SR_NODE_INSTALL:-}" = "skip" ]; then
+if [ "${DEVKIT_NODE_INSTALL:-}" = "skip" ]; then
     exit 0
 fi
 
@@ -105,9 +106,9 @@ If yarn refused the lockfile, package.json and yarn.lock disagree and the fix is
 to update the lockfile - from inside the container, since the toolchain does not
 run on the host:
 
-    SR_NODE_INSTALL=skip scripts/container.sh sh -c 'cd assets && yarn install'
+    DEVKIT_NODE_INSTALL=skip scripts/container.sh sh -c 'cd assets && yarn install'
 
-SR_NODE_INSTALL=skip is what gets you a shell while this is broken; it skips
+DEVKIT_NODE_INSTALL=skip is what gets you a shell while this is broken; it skips
 this check for the one command it is set on.
 MSG
     exit 1

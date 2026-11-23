@@ -18,7 +18,7 @@
 """The app every reading is taken from, built inside the pins of `world.py`.
 
 These tests write a record rather than assert one, so they run only when asked to write it somewhere:
-`scripts/ci/behaviour.py` sets `SR_BEHAVIOUR_OUT`. Without it nothing here is collected - `make test`
+`scripts/ci/behaviour.py` sets `DEVKIT_BEHAVIOUR_OUT`. Without it nothing here is collected - `make test`
 and the ordinary suite pass over them - and `pytest tests/behaviour` on its own collects nothing and
 exits 5, which is a failure rather than a pass.
 """

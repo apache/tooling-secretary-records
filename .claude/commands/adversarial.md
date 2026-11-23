@@ -2,6 +2,7 @@
 description: Hand a pushed branch to a fresh subagent and ask it to break the change
 argument-hint: "[branch] (defaults to the current one)"
 ---
+<!-- Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy. -->
 
 # Attack the branch before the pull request
 
@@ -22,7 +23,7 @@ edits are part of what it was asked about.
 
 ## The prompt
 
-> You are doing an adversarial pre-PR review in the apache/tooling-secretary-records repository.
+> You are doing an adversarial pre-PR review in this repository.
 > Read AGENTS.md first. **Change nothing, commit nothing, post nothing to GitHub.**
 > Report findings.
 >

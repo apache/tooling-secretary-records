@@ -1,4 +1,5 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Run the Playwright end-to-end suite entirely in containers.
 #
 # This is what `make e2e-test` runs. Nothing is installed on the host: the app
@@ -14,24 +15,28 @@
 #
 # Usage:
 #   scripts/e2e-container.sh                 # whole suite
-#   scripts/e2e-container.sh home            # only specs matching "home"
+#   scripts/e2e-container.sh presentation    # only specs matching "presentation"
 #
 # The server container, its network and its volumes are named after the checkout
 # this runs in, so a second session working in another worktree gets a second
 # server rather than a fight over one (see scripts/checkout-id.sh).
 #
 # Environment:
-#   SR_RUNTIME          container runtime to use (default: podman, else docker)
-#   SR_KEEP             leave the app container running afterwards, to re-run
+#   DEVKIT_RUNTIME          container runtime to use (default: podman, else docker)
+#   DEVKIT_KEEP             leave the app container running afterwards, to re-run
 #                        quickly
-#   SR_E2E_SERVER       name the application container outright, rather than
+#   DEVKIT_E2E_SERVER       name the application container outright, rather than
 #                        taking the name derived from this checkout
-#   SR_E2E_NETWORK      likewise for the network the two containers share
-#   SR_E2E_NODE_VOLUME  likewise for Playwright's own node_modules volume
-#   SR_IMAGE            the application image, built from the Dockerfile when absent
-#   SR_PLAYWRIGHT_IMAGE the image the browser and the suite run in
-#   SR_VENV_VOLUME      as in scripts/container.sh: the volumes the application
-#   SR_NODE_VOLUME      container runs from
+#   DEVKIT_E2E_NETWORK      likewise for the network the two containers share
+#   DEVKIT_E2E_NODE_VOLUME  likewise for Playwright's own node_modules volume
+#   DEVKIT_IMAGE            the application image, built from the Dockerfile when absent
+#   DEVKIT_PLAYWRIGHT_IMAGE the image the browser and the suite run in
+#   DEVKIT_VENV_VOLUME      as in scripts/container.sh: the volumes the application
+#   DEVKIT_NODE_VOLUME      container runs from
+#   DEVKIT_E2E_WORKERS      run this many servers side by side, one per Playwright worker
+#                        (see e2e/supervisor.py), so different spec files can run at
+#                        the same time instead of one at a time. Unset (or 1) keeps
+#                        today's single server.
 
 set -eu
 
@@ -51,20 +56,22 @@ repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd)
 # branch rather than like someone else's tidying up.
 suffix=$(checkout_suffix "$repo_root")
 
-IMAGE_NAME="${SR_IMAGE:-secretary-records-dev}"
-PLAYWRIGHT_IMAGE="${SR_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.61.1-noble}"
-NETWORK="${SR_E2E_NETWORK:-secretary-records-e2e-net$suffix}"
-SERVER="${SR_E2E_SERVER:-secretary-records-e2e-server$suffix}"
-VENV_VOLUME="${SR_VENV_VOLUME:-secretary-records-venv$suffix}"
-NODE_VOLUME="${SR_NODE_VOLUME:-secretary-records-node$suffix}"
-E2E_NODE_VOLUME="${SR_E2E_NODE_VOLUME:-secretary-records-e2e-node$suffix}"
+IMAGE_NAME="${DEVKIT_IMAGE:-$DEVKIT_SERVICE-dev}"
+PLAYWRIGHT_IMAGE="${DEVKIT_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.61.1-noble}"
+NETWORK="${DEVKIT_E2E_NETWORK:-$DEVKIT_SERVICE-e2e-net$suffix}"
+SERVER="${DEVKIT_E2E_SERVER:-$DEVKIT_SERVICE-e2e-server$suffix}"
+VENV_VOLUME="${DEVKIT_VENV_VOLUME:-$DEVKIT_SERVICE-venv$suffix}"
+NODE_VOLUME="${DEVKIT_NODE_VOLUME:-$DEVKIT_SERVICE-node$suffix}"
+E2E_NODE_VOLUME="${DEVKIT_E2E_NODE_VOLUME:-$DEVKIT_SERVICE-e2e-node$suffix}"
 PORT=8099
+POOL_READY_PORT=8090
+WORKERS="${DEVKIT_E2E_WORKERS:-1}"
 
-# Already inside a disposable environment (SR_ISOLATED=1): the suite runs on it directly,
+# Already inside a disposable environment (DEVKIT_ISOLATED=1): the suite runs on it directly,
 # as `make e2e-test-host` does, rather than in containers nested inside. The arguments
 # are Playwright's, as they are below, and are not put through make, which would split
 # `-g 'two words'` and run what follows a `;` in one.
-if [ "${SR_ISOLATED:-}" = 1 ]; then
+if [ "${DEVKIT_ISOLATED:-}" = 1 ]; then
     PATH="$HOME/.local/bin:$PATH"
     export PATH
     cd "$repo_root"
@@ -92,8 +99,8 @@ if [ "${SR_ISOLATED:-}" = 1 ]; then
     exit "$status"
 fi
 
-if [ -n "${SR_RUNTIME:-}" ]; then
-    runtime="$SR_RUNTIME"
+if [ -n "${DEVKIT_RUNTIME:-}" ]; then
+    runtime="$DEVKIT_RUNTIME"
 elif command -v podman >/dev/null 2>&1; then
     runtime=podman
 elif command -v docker >/dev/null 2>&1; then
@@ -107,7 +114,7 @@ fi
 # notices at all now the script ends in an explicit `exit`.
 # shellcheck disable=SC2329
 cleanup() {
-    if [ -z "${SR_KEEP:-}" ]; then
+    if [ -z "${DEVKIT_KEEP:-}" ]; then
         "$runtime" rm -f "$SERVER" >/dev/null 2>&1 || true
     fi
 }
@@ -119,8 +126,8 @@ if ! "$runtime" image exists "$IMAGE_NAME" 2>/dev/null &&
     "$runtime" build -t "$IMAGE_NAME" "$repo_root"
 fi
 
-# labelled only under the name this checkout derives: SR_E2E_NETWORK can name one that is shared
-if [ "$NETWORK" = "secretary-records-e2e-net$suffix" ] && [ -n "$suffix" ]; then
+# labelled only under the name this checkout derives: DEVKIT_E2E_NETWORK can name one that is shared
+if [ "$NETWORK" = "$DEVKIT_SERVICE-e2e-net$suffix" ] && [ -n "$suffix" ]; then
     "$runtime" network create --label "$PATH_LABEL=$repo_root" "$NETWORK" >/dev/null 2>&1 || true
 else
     "$runtime" network create "$NETWORK" >/dev/null 2>&1 || true
@@ -130,25 +137,25 @@ fi
 # it seeds them the same way. Unconditionally, not only on the path that starts a
 # server: a reused one is already running from them, and doing it here keeps the
 # two scripts interchangeable as the first thing run in a new worktree.
-seed_volume "$VENV_VOLUME" secretary-records-venv
-seed_volume "$NODE_VOLUME" secretary-records-node
-own_volume "$E2E_NODE_VOLUME" "secretary-records-e2e-node$suffix"
+seed_volume "$VENV_VOLUME" "$DEVKIT_SERVICE-venv"
+seed_volume "$NODE_VOLUME" "$DEVKIT_SERVICE-node"
+own_volume "$E2E_NODE_VOLUME" "$DEVKIT_SERVICE-e2e-node$suffix"
 
-# SR_KEEP leaves the container up afterwards; this is the half that makes that worth
+# DEVKIT_KEEP leaves the container up afterwards; this is the half that makes that worth
 # anything. Starting one costs about seventy seconds - copying the tree in and building
 # the frontend - which is most of the wall clock of a narrow run. The e2e directory is
 # bind-mounted into the Playwright container further down, so an already-running server
 # picks up spec edits with no restart at all; only a change under app/ or assets/ needs
 # a fresh one.
 #
-# The network is checked as well as the running state: SR_E2E_NETWORK can differ between
+# The network is checked as well as the running state: DEVKIT_E2E_NETWORK can differ between
 # runs, and a server left on the previous one is unreachable from the Playwright container
 # attached to this one - which would show up as a silent five-minute wait rather than as
 # anything to do with reuse.
 reuse=""
 # $name and $_ are Go template variables, so the single quotes are deliberate
 # shellcheck disable=SC2016
-if [ -n "${SR_KEEP:-}" ] &&
+if [ -n "${DEVKIT_KEEP:-}" ] &&
     "$runtime" inspect "$SERVER" --format '{{.State.Running}}' 2>/dev/null | grep -q true &&
     "$runtime" inspect "$SERVER" \
         --format '{{range $name, $_ := .NetworkSettings.Networks}}{{$name}}{{"\n"}}{{end}}' 2>/dev/null |
@@ -158,7 +165,7 @@ fi
 
 if [ -n "$reuse" ]; then
     echo "reusing the running application container: it serves app/ and assets/ as they" >&2
-    echo "were when it started. Drop SR_KEEP, or remove $SERVER, after changing either." >&2
+    echo "were when it started. Drop DEVKIT_KEEP, or remove $SERVER, after changing either." >&2
 else
     "$runtime" rm -f "$SERVER" >/dev/null 2>&1 || true
     echo "starting the application container..." >&2
@@ -171,8 +178,10 @@ else
 "$runtime" run -d --name "$SERVER" --network "$NETWORK" \
     --label "$PATH_LABEL=$repo_root" \
     -v "$repo_root:/mnt:ro" \
-    -v "$VENV_VOLUME:/run/secretary-records/.venv" \
-    -v "$NODE_VOLUME:/run/secretary-records/assets/node_modules" \
+    -v "$VENV_VOLUME:$DEVKIT_RUN_DIR/.venv" \
+    -v "$NODE_VOLUME:$DEVKIT_RUN_DIR/assets/node_modules" \
+    -e "DEVKIT_E2E_WORKERS=$WORKERS" \
+    -e "DEVKIT_RUN_DIR=$DEVKIT_RUN_DIR" \
     "$IMAGE_NAME" \
     sh -euc '
         PATH="/root/.local/bin:$PATH"
@@ -186,8 +195,8 @@ else
             --exclude=./state \
             --exclude=./state-e2e \
             --exclude=./state-preview \
-            -cf - . | tar -C /run/secretary-records -xf -
-        cd /run/secretary-records
+            -cf - . | tar -C "$DEVKIT_RUN_DIR" -xf -
+        cd "$DEVKIT_RUN_DIR"
 
         # The same call container.sh makes, for the same reason: yarn installs when
         # asked and not otherwise. Without it the build dies on "Couldn'"'"'t find the
@@ -199,15 +208,17 @@ else
 
         (cd assets && yarn build)
 
+        # serve.py builds the throwaway working copy of the fixtures it serves
+        # (scripts/e2e-fixture-data.sh), so there is nothing to set up here.
+
         # bind on every interface so the Playwright container can reach us
         sed -i "s/host: 127.0.0.1/host: 0.0.0.0/" e2e/e2e-config.yaml
 
-        # serve.py sets SR_E2E itself, which is what enables the test-login route.
-        # One server for the whole run: every spec shares it, so a spec that changes
-        # state leaves it changed for the next one. BAT grew a supervisor that gives
-        # each spec file a fresh server (its e2e/supervisor.py); port it when a second
-        # spec needs that isolation.
-        exec uv run python e2e/serve.py
+        # The supervisor boots the application itself and additionally listens on
+        # SUPERVISOR_PORT for a per-spec-file POST /restart (see e2e/supervisor.py):
+        # kill the app, throw away its state directory, boot a clean one. Without it
+        # every spec in the run shares one server.
+        exec uv run python e2e/supervisor.py
     ' >/dev/null
 fi
 
@@ -223,7 +234,15 @@ fi
 base_url="http://${server_ip}:${PORT}"
 host="http://${server_ip}"
 
-ready_url="$base_url"
+# A pool (WORKERS > 1) is only as ready as its slowest slot, which is exactly what
+# supervisor.py's own pool-ready port reports (see _PoolReadyHandler in e2e/supervisor.py);
+# waiting on the one app port instead would let this script - and then Playwright,
+# dispatching spec files to workers - move on while another slot is still booting.
+if [ "$WORKERS" -gt 1 ] 2>/dev/null; then
+    ready_url="http://${server_ip}:${POOL_READY_PORT}"
+else
+    ready_url="$base_url"
+fi
 
 echo "waiting for $ready_url ..." >&2
 waited=0
@@ -249,8 +268,10 @@ status=0
     -v "$repo_root/e2e:/e2e:z" \
     -v "$E2E_NODE_VOLUME:/e2e/node_modules" \
     -w /e2e \
-    -e "SR_E2E_URL=$base_url" \
-    -e "SR_E2E_HOST=$host" \
+    -e "DEVKIT_E2E_URL=$base_url" \
+    -e "DEVKIT_E2E_HOST=$host" \
+    -e "DEVKIT_E2E_WORKERS=$WORKERS" \
+    -e "DEVKIT_RUN_DIR=$DEVKIT_RUN_DIR" \
     "$PLAYWRIGHT_IMAGE" \
     sh -euc 'npm install --no-audit --no-fund >/dev/null 2>&1; exec npx playwright test "$@"' sh "$@" ||
     status=$?

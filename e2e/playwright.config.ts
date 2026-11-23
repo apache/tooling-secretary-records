@@ -1,12 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 
 // The app serves over plain HTTP for e2e (see e2e/serve.py).
-const BASE_URL = process.env.SR_E2E_URL ?? 'http://127.0.0.1:8099';
+const BASE_URL = process.env.DEVKIT_E2E_URL ?? 'http://127.0.0.1:8099';
 
 // By default Playwright launches the app itself (used in CI). Set
 // SR_E2E_EXTERNAL_SERVER=1 to run against a server you started separately -
 // scripts/e2e-container.sh does, with the app in a container of its own.
-const externalServer = process.env.SR_E2E_EXTERNAL_SERVER === '1' || process.env.SR_E2E_URL !== undefined;
+const externalServer = process.env.SR_E2E_EXTERNAL_SERVER === '1' || process.env.DEVKIT_E2E_URL !== undefined;
 
 export default defineConfig({
   testDir: './tests',

@@ -2,6 +2,7 @@
 description: Capture the screenshots a UI pull request needs and publish them where GitHub will show them
 argument-hint: "[pr number] (defaults to the PR for the current branch)"
 ---
+<!-- Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy. -->
 
 # Screenshots for a pull request
 

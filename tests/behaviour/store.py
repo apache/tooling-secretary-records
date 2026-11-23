@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
-"""Where a record is written: `SR_BEHAVIOUR_OUT`, which `scripts/ci/behaviour.py` names.
+"""Where a record is written: `DEVKIT_BEHAVIOUR_OUT`, which `scripts/ci/behaviour.py` names.
 
 Nothing here compares. The record of this checkout and the record of the commit it would merge into
 are compared by that script, each having been written by its own commit's harness.
@@ -28,7 +28,7 @@ import pathlib
 
 from tests.behaviour import normalise
 
-OUT_ENV = "SR_BEHAVIOUR_OUT"
+OUT_ENV = "DEVKIT_BEHAVIOUR_OUT"
 
 
 def out() -> pathlib.Path:

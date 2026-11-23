@@ -15,12 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 """What the commits a branch adds say about themselves in their trailers.
 
-Two checks read one: the quality ratchet (`Quality-Allow:`) and the behaviour record
-(`Behaviour-Allow:`, `Behaviour-Harness:`). Each lets a change argue for something the check would
-otherwise refuse, and puts the argument in the commit that makes the change - so it needs no file,
-and it is gone the moment those commits are behind the base.
+Two checks read one: the quality ratchet (`Quality-Allow:`) and the minutes reading
+(`Reading-Allow:`). Each lets a change argue for something the check would otherwise refuse, and
+puts the argument in the commit that makes the change - so it needs no file, and it is gone the
+moment those commits are behind the base.
 """
 
 from __future__ import annotations

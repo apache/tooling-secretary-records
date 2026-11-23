@@ -24,7 +24,7 @@ Browser-level tests that drive the real app, signed in as whoever a spec needs.
   `expect` from. It fails a test on an exception the page threw or anything the
   Content Security Policy refused, neither of which shows on screen.
 - **`playwright.config.ts`** launches `serve.py` via its `webServer` option.
-  Set `SR_E2E_URL` (or `SR_E2E_EXTERNAL_SERVER=1`) to run against a server you
+  Set `DEVKIT_E2E_URL` (or `SR_E2E_EXTERNAL_SERVER=1`) to run against a server you
   started yourself; `scripts/e2e-container.sh` does.
 
 ## Running
@@ -49,7 +49,7 @@ make e2e-quick FILTER=home
 ```
 
 `e2e/` is bind-mounted, so a spec edit needs no restart; a change under `app/`
-or `assets/` does - drop `SR_KEEP` (or remove the server container) after one,
+or `assets/` does - drop `DEVKIT_KEEP` (or remove the server container) after one,
 or the suite tests the build from before it.
 
 The browser reaches the app by container ip over plain HTTP, which is

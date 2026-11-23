@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 """Which parts of the behaviour record a change can reach (`scripts/ci/behaviour.py`).
 
 A part's modules are what it ran, as `tests/behaviour/executed.py` noted them. A change reaches a part
@@ -22,8 +23,9 @@ that ran a module it touches, or a module importing one it touches - one step ou
 a constant is read without running anything of the module that holds it.
 
 Everything is recorded, rather than a guess, where the map cannot answer:
-- a change to what no function call shows (`EVERYTHING_WHEN`): templates, data, a package's
-  `__init__`, the harness, the dependencies, CI;
+- a change to what no function call shows (`EVERYTHING_WHEN`, and the globs a repository adds in
+  `scripts/local/behaviour.toml`, see `behaviour_rules.py`): templates, data, a package's `__init__`, the
+  harness, the dependencies, CI;
 - a module added or removed under app/, which the base's map knows nothing of, or knows only by a name
   the head no longer has - a refactor moves code, and moving it is exactly what must be compared;
 - a module startup runs, or one imported by a module startup runs, since every part stands on startup;
@@ -108,19 +110,22 @@ def _importers(root: pathlib.Path, modules: set[str], package: str) -> dict[str,
     }
 
 
-def _unseen(changed: Iterable[str], package: str) -> list[str]:
+def _unseen(changed: Iterable[str], package: str, globs: Iterable[str]) -> list[str]:
     """The changed paths no function call shows."""
+    globs = tuple(globs)
     return [
         path
         for path in changed
-        if any(fnmatch.fnmatchcase(path, glob) for glob in EVERYTHING_WHEN)
+        if any(fnmatch.fnmatchcase(path, glob) for glob in globs)
         or (path.startswith(f"{package}/") and not path.endswith(".py"))
     ]
 
 
-def _everything_because(changed: list[str], added_or_removed: Iterable[str], package: str) -> list[str]:
+def _everything_because(
+    changed: list[str], added_or_removed: Iterable[str], package: str, globs: Iterable[str]
+) -> list[str]:
     """Why the paths alone call for everything, or nothing."""
-    if unseen := _unseen(changed, package):
+    if unseen := _unseen(changed, package, globs):
         return [f"{path} is not seen through what a part runs" for path in unseen]
     moved = sorted(path for path in added_or_removed if path.startswith(f"{package}/") and path.endswith(".py"))
     return [f"{path} is added or removed, which the base's map cannot speak for" for path in moved]
@@ -145,10 +150,11 @@ def select(
     *,
     added_or_removed: Iterable[str] = (),
     package: str = PACKAGE,
+    everything_when: Iterable[str] = EVERYTHING_WHEN,
 ) -> Selection:
     """The parts of the record a change to `changed` can reach, or everything. `added_or_removed` are the
     changed paths that are new or gone, rather than edited."""
-    if reasons := _everything_because(changed, added_or_removed, package):
+    if reasons := _everything_because(changed, added_or_removed, package, everything_when):
         return Selection(True, reasons, [])
     touched = {path for path in changed if path.startswith(f"{package}/") and path.endswith(".py")}
     if not touched:
@@ -163,13 +169,18 @@ def select(
     return Selection(False, sorted(touched), parts)
 
 
-def compared(files: dict[str, bytes], executed: dict[str, dict[str, Any]], selection: Selection) -> dict[str, bytes]:
+def compared(
+    files: dict[str, bytes],
+    executed: dict[str, dict[str, Any]],
+    selection: Selection,
+    whole_tests: dict[str, str] = WHOLE,
+) -> dict[str, bytes]:
     """The base's files a selected recording is compared with: those of the parts it recorded, all of each
     test that runs whole, and the route walk's, which always runs. Not the match counts of a test that
     ran in part, which count what it ran."""
     kept = {path for part in selection.parts for path in executed.get(part, {}).get("files", [])}
     kept |= {"routes.txt", "normalisation/routes.txt"}
-    whole = {name for prefix, name in WHOLE.items() if any(part.startswith(prefix) for part in selection.parts)}
+    whole = {name for prefix, name in whole_tests.items() if any(part.startswith(prefix) for part in selection.parts)}
     return {
         path: content
         for path, content in files.items()
@@ -178,7 +189,10 @@ def compared(files: dict[str, bytes], executed: dict[str, dict[str, Any]], selec
 
 
 def measure(
-    root: pathlib.Path, executed: dict[str, dict[str, Any]], commits: list[tuple[str, str, list[str], list[str]]]
+    root: pathlib.Path,
+    executed: dict[str, dict[str, Any]],
+    commits: list[tuple[str, str, list[str], list[str]]],
+    everything_when: Iterable[str] = EVERYTHING_WHEN,
 ) -> None:
     """What the selection would have recorded for each `(sha, subject, changed, added_or_removed)`, and on
     average."""
@@ -186,7 +200,7 @@ def measure(
     counts = {"everything": 0, "some": 0, "nothing": 0}
     fractions = []
     for sha, subject, changed, moved in commits:
-        selection = select(root, changed, executed, added_or_removed=moved)
+        selection = select(root, changed, executed, added_or_removed=moved, everything_when=everything_when)
         kind = "everything" if selection.everything else "some" if selection.parts else "nothing"
         counts[kind] += 1
         fractions.append(1.0 if selection.everything else len(selection.parts) / total)

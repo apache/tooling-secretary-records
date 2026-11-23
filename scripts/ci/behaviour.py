@@ -15,33 +15,34 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 """Whether this change alters what the app answers, and whether it says it means to.
 
     scripts/container.sh uv run scripts/ci/behaviour.py base     # record with the merge base
     scripts/container.sh uv run scripts/ci/behaviour.py check    # record with this checkout, compare
 
-What is recorded is `tests/behaviour`: every GET route as each reader is answered, and what a fixed
-sequence of writes through the API changes, all from the test fixture on a pinned clock. Nothing of
-it is committed. `base` checks the commit this branch would merge into out into a throwaway worktree
-and has *that* commit record itself, with its own `scripts/ci/behaviour.py` and its own
-`tests/behaviour`; `check` records this checkout and compares the two records file by file. A
-refactor that moves a module the harness reaches into moves the harness's import with it, and the
-two still have to record the same thing.
+What is recorded is `tests/behaviour`: every GET route as each reader is answered, the files the app
+renders to commit or publish, and what its scheduled tasks send and store, all from the test
+fixture on a pinned clock. Nothing of it is committed. `base` checks the commit this branch would
+merge into out into a throwaway worktree and has *that* commit record itself, with its own
+`scripts/ci/behaviour.py` and its own `tests/behaviour`; `check` records this checkout and compares
+the two records file by file. A refactor that moves a module the harness reaches into moves the
+harness's import with it, and the two still have to record the same thing.
 
 A file that differs fails the check unless one of this branch's own commits says it should, in the
 trailer block of its message:
 
-    Behaviour-Allow: http/admin/*.txt
+    Behaviour-Allow: http/committees/*.txt
 
 The value is a path in the record, or a glob over paths (`fnmatch`, where `*` crosses `/`) that starts
 with a directory written out: `http/*.txt`, not `*.txt`, `*/x.txt` or `**/x`. Globs that alone or together
 match every path the base record holds are refused too, and a full run does not honour them. The reason
-is that commit's subject, as for `Quality-Allow:`. A trailer that allows nothing that changed is
-reported, so that one left behind after the change it argued for was reverted does not go on excusing
-whatever moves there next. Only the branch's own commits count: not a merge, nor a branch merged in.
+is that commit's subject, as for `Quality-Allow:` and `Reading-Allow:`. A trailer that allows nothing
+that changed is reported, so that one left behind after the change it argued for was reverted does not
+go on excusing whatever moves there next. Only the branch's own commits count, not a merge or its branch.
 
-A branch that changes the harness itself - `tests/behaviour`, the suite's conftest and fixture data,
-these scripts - says so with `Behaviour-Harness: <why>`, and changes nothing under `app/`
+A branch that changes the harness itself - `tests/behaviour`, the suite's conftest, config and
+fixture, these scripts - says so with `Behaviour-Harness: <why>`, and changes nothing under `app/`
 (`behaviour_gate.py`).
 
 What differs is written to `state/behaviour.diff`, which is what a reviewer reads. In CI it also
@@ -52,17 +53,19 @@ failed `base` left behind, is refused rather than compared with. Only while `--r
 harness - the change that brings it - is there nothing to compare with; a base without one after
 that is an error.
 
-**Only what a change can reach.** A recording also writes, beside the record, which of the app's
-modules each part of it ran (`tests/behaviour/executed.py`): each route as each reader asks it, each
-scenario step, and `startup`. `check` reads that map from the base and records only the parts whose
-modules the change touches, or that import one it touches - one step out, as a constant is read
-without running anything of the module holding it. It records everything when the change touches
-what no function call shows: a template, a static file, data under app/ that is not Python, a
-migration, the fixture, the test setup, this harness, the dependencies, the Makefile, CI - or a
-module that runs at startup or is imported by one, a module added or removed, and one no part runs
-and no module imports (`behaviour_selection.py`). A route the base never recorded is always asked,
-and the route walk is always recorded, even for a change no part runs. `--full` records everything
-regardless; the nightly workflow uses it, and so does `make container-snapshot-full`.
+**Only what a change can reach.** A recording also writes, beside the record, which of the app's modules
+each part of it ran (`tests/behaviour/executed.py`): each route as each reader asks it, each scheduled
+task, each rendered file, each scenario step, and `startup`. `check` reads that map from the base and
+records only the parts whose modules the change touches, or that import one it touches - one step out,
+as a constant is read without running anything of the module holding it. It records everything when the
+change touches what no function call shows: a template, a static file, data under app/ that is not
+Python, a migration, the fixture, the test setup, this harness, the dependencies, the Makefile, CI - or
+a module that runs at startup or is imported by one, a module added or removed, and one no part runs and
+no module imports (`behaviour_selection.py`). A route the base never recorded is always asked, and the
+route walk is always recorded, even for a change no part runs. `--full` records everything regardless;
+the nightly workflow and the check before a promotion use it (`make container-snapshot-full`).
+A squash merge's message holds its branch's trailers where git reads none: `--pulls` adds what the pull
+requests merged as these commits allowed, as `behaviour_pulls.py` read it. The nightly passes it.
 
     scripts/container.sh uv run scripts/ci/behaviour.py measure --map state/behaviour-base.executed.json
 
@@ -85,7 +88,9 @@ import tempfile
 from typing import TYPE_CHECKING, Any, Final
 
 import behaviour_gate as gate
-from behaviour_selection import DEPENDENCIES, compared, measure, select
+import behaviour_pulls
+from behaviour_rules import LocalError, load_rules
+from behaviour_selection import DEPENDENCIES, EVERYTHING_WHEN, compared, measure, select
 
 if TYPE_CHECKING:
     from behaviour_selection import Selection
@@ -94,7 +99,7 @@ ROOT: Final = pathlib.Path(__file__).resolve().parent.parent.parent
 STATE: Final = ROOT / "state"
 
 HASH_SEED: Final = "0"
-"""What `tests/behaviour` requires of PYTHONHASHSEED: a set of strings iterates in an order it decides."""
+"""What `tests/behaviour` requires of PYTHONHASHSEED: the app writes some sets as they iterate."""
 
 META: Final = "behaviour-record.json"
 """Beside a record rather than in it: which commit it was recorded from, which nothing compares."""
@@ -109,16 +114,29 @@ class Record:
     files: dict[str, bytes]
 
 
-def _git(*arguments: str, cwd: pathlib.Path | None = None) -> str:
-    finished = subprocess.run(["git", *arguments], cwd=cwd or ROOT, capture_output=True, text=True)
+def _git(*arguments: str, cwd: pathlib.Path | None = None, whole: bool = False) -> str:
+    finished = subprocess.run(["git", *arguments], cwd=cwd or ROOT, capture_output=True)
     if finished.returncode != 0:
-        raise SystemExit(f"git {' '.join(arguments)} failed: {finished.stderr.strip()}")
-    return finished.stdout.strip()
+        raise SystemExit(f"git {' '.join(arguments)} failed: {finished.stderr.decode(errors='replace').strip()}")
+    said = finished.stdout.decode(errors="backslashreplace")
+    return said if whole else said.strip()
+
+
+def _paths(command: str, *arguments: str) -> list[str]:
+    r"""The fields of `git <command> -z`, each a path or a status as git holds it, a byte outside UTF-8 as `\xff`
+    so that every path prints. Not the readable listing, where `app/café.py` is `"app/caf\303\251.py"`: under
+    no directory, and matching no glob the gate or the selection asks with (quality_moves.py reads with -z too)."""
+    return [field for field in _git(command, "-z", *arguments, whole=True).split("\0") if field]
+
+
+def _statuses(*revisions: str) -> list[tuple[str, str]]:
+    fields = _paths("diff", "--name-status", "--no-renames", *revisions)
+    return list(zip(fields[0::2], fields[1::2], strict=True))
 
 
 def _workers() -> str:
     """Three unless told: a recording is several apps at once, and a machine shared by several sessions
-    has been taken down by fewer. CI, with a runner to itself, asks for four."""
+    has been taken down by fewer. CI, with a runner to itself, asks for six."""
     return os.environ.get("BEHAVIOUR_WORKERS") or str(min(3, os.cpu_count() or 1))
 
 
@@ -142,12 +160,12 @@ def run_harness(out: pathlib.Path, selection: dict[str, list[str]] | None = None
     command = [sys.executable, "-m", "pytest", "-n", _workers(), "-q", "-p", "no:cacheprovider", "tests/behaviour"]
     env = os.environ | {
         "PYTHONHASHSEED": HASH_SEED,
-        "SR_BEHAVIOUR_OUT": str(out),
-        "SR_BEHAVIOUR_EXECUTED": str(_beside(out, "executed")),
+        "DEVKIT_BEHAVIOUR_OUT": str(out),
+        "DEVKIT_BEHAVIOUR_EXECUTED": str(_beside(out, "executed")),
     }
     if selection is not None:
         _beside(out, "select.json").write_text(json.dumps(selection) + "\n")
-        env |= {"SR_BEHAVIOUR_SELECT": str(_beside(out, "select.json"))}
+        env |= {"DEVKIT_BEHAVIOUR_SELECT": str(_beside(out, "select.json"))}
     finished = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True)
     if finished.returncode != 0:
         raise SystemExit(f"recording failed ({finished.returncode}):\n{finished.stdout[-6000:]}")
@@ -211,7 +229,7 @@ def _dependencies_differ(sha: str) -> bool:
 def _record_with_its_own(sha: str, out: pathlib.Path) -> None:
     """Have `sha` record itself into `out`, with its own script and harness, in a throwaway worktree - and
     its own environment where its dependencies are not this checkout's."""
-    with tempfile.TemporaryDirectory(prefix="secretary-records-behaviour-base-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="devkit-behaviour-base-") as scratch:
         checkout = pathlib.Path(scratch) / "base"
         script = ["scripts/ci/behaviour.py", "record", "--out", str(out.resolve())]
         env = dict(os.environ)
@@ -300,16 +318,15 @@ def _diff(path: str, before: bytes | None, after: bytes | None) -> list[str]:
 def _changed_since(commit: str) -> list[str]:
     """What differs from `commit` in the working tree, which is what is recorded - untracked files too."""
     return [
-        *_git("diff", "--name-only", "--no-renames", commit).splitlines(),
-        *_git("ls-files", "--others", "--exclude-standard").splitlines(),
+        *_paths("diff", "--name-only", "--no-renames", commit),
+        *_paths("ls-files", "--others", "--exclude-standard"),
     ]
 
 
 def _added_or_removed(commit: str) -> list[str]:
     """What is new in the working tree since `commit`, or gone from it - an untracked file being new."""
-    listed = [line.split("\t", 1) for line in _git("diff", "--name-status", "--no-renames", commit).splitlines()]
-    new_or_gone = [path for status, path in listed if status in ("A", "D")]
-    return new_or_gone + _git("ls-files", "--others", "--exclude-standard").splitlines()
+    new_or_gone = [path for status, path in _statuses(commit) if status in ("A", "D")]
+    return new_or_gone + _paths("ls-files", "--others", "--exclude-standard")
 
 
 def _usable_base(base_out: pathlib.Path, ref: str) -> Record | None:
@@ -369,10 +386,10 @@ def _honoured(allowances: list[tuple[str, str]], recorded: list[str]) -> tuple[l
     return kept, [f"`{gate.ALLOW}: {glob}` is not honoured: the gate refuses it" for glob in sorted(dropped)]
 
 
-def _harness_notes(changed: list[str], harness: list[tuple[str, str]]) -> list[str]:
+def _harness_notes(changed: list[str], harness: list[tuple[str, str]], harness_files: tuple[str, ...]) -> list[str]:
     if not harness:
         return []
-    if not gate.touched(changed, gate.HARNESS_FILES):
+    if not gate.touched(changed, harness_files):
         return [
             f"{gate.HARNESS}: '{subject}' says the harness changes, and it does not - drop the trailer"
             for _, subject in harness
@@ -380,12 +397,17 @@ def _harness_notes(changed: list[str], harness: list[tuple[str, str]]) -> list[s
     return [f"the harness changes: {why} ('{subject}')" for why, subject in harness]
 
 
-def _choose(changed: list[str], moved: list[str], executed: dict[str, dict[str, Any]] | None) -> Selection | None:
+def _choose(
+    changed: list[str],
+    moved: list[str],
+    executed: dict[str, dict[str, Any]] | None,
+    everything_when: tuple[str, ...] = EVERYTHING_WHEN,
+) -> Selection | None:
     """What to record: None for everything, or the parts `changed` can reach - none, for a change to
     nothing a part runs, in which case the route walk is still recorded."""
     if executed is None:
         return None
-    selection = select(ROOT, changed, executed, added_or_removed=moved)
+    selection = select(ROOT, changed, executed, added_or_removed=moved, everything_when=everything_when)
     if selection.everything:
         print("Recording everything:\n" + "\n".join(f"  {reason}" for reason in selection.reasons))
         return None
@@ -410,11 +432,43 @@ def _record_selected(head_out: pathlib.Path, selection: Selection | None, execut
     return Record(head.commit, True, asked)
 
 
+def _claims(
+    since: str, pulls: pathlib.Path | None, *, full: bool
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]], list[str]] | None:
+    """The allowances and harness claims since `since`, with what the pull requests merged as those commits
+    carried where `pulls` holds it, and where they were read from. None for a `pulls` of another range."""
+    allowances = gate.claims(gate.ALLOW, since, ROOT)
+    harness = gate.claims(gate.HARNESS, since, ROOT)
+    if pulls is None:
+        unread = "allowances are these commits' own trailers; a squash merge's are not, and are not read here"
+        return allowances, harness, [f"{unread} (behaviour_pulls.py reads them)"] if full else []
+    try:
+        carried = behaviour_pulls.carried(pulls, since, _git("rev-parse", "HEAD"))
+    except behaviour_pulls.UnreadableError as error:
+        print(error, file=sys.stderr)
+        return None
+    merged = len({number for number in carried.pulls.values() if number is not None})
+    note = f"allowances read from these commits and from the {merged} pull requests merged as them"
+    return [*allowances, *carried.claims[gate.ALLOW]], [*harness, *carried.claims[gate.HARNESS]], [note]
+
+
 def check(
-    base_out: pathlib.Path, head_out: pathlib.Path, diff_file: pathlib.Path, ref: str, *, full: bool = False
+    base_out: pathlib.Path,
+    head_out: pathlib.Path,
+    diff_file: pathlib.Path,
+    ref: str,
+    *,
+    full: bool = False,
+    pulls: pathlib.Path | None = None,
 ) -> int:
     """Record with this checkout and compare with the base. 1 on a difference nothing allows, or a branch
-    the gate refuses; 2 on a base that is not this branch's."""
+    the gate refuses; 2 on a base that is not this branch's, a `pulls` reading of another range, or a
+    `scripts/local/behaviour.toml` that cannot be used."""
+    try:
+        rules = load_rules(ROOT)
+    except LocalError as error:
+        print(error, file=sys.stderr)
+        return 2
     recorded = _usable_base(base_out, ref)
     if recorded is None:
         return 2
@@ -425,38 +479,47 @@ def check(
         print(f"{recorded.commit[:12]} has no tests/behaviour, so there is nothing to compare this record with.")
         return 0
 
+    claimed = _claims(recorded.commit, pulls, full=full)
+    if claimed is None:
+        return 2
+    allowances, harness, read_from = claimed
     changed = _changed_since(recorded.commit)
-    allowances = gate.claims(gate.ALLOW, recorded.commit, ROOT)
-    harness = gate.claims(gate.HARNESS, recorded.commit, ROOT)
-    refused = gate.refusals(changed, allowances, harness, list(recorded.files))
+    refused = gate.refusals(changed, allowances, harness, list(recorded.files), rules.harness_files)
     if refused and not full:
         heading = "This branch is not compared:"
         print(heading + "\n" + "\n".join(f"  {reason}" for reason in refused))
         _summarise(heading, refused, [])
         return 1
-    # a full run compares commits already merged, which may hold a harness change and a change to the app
-    # that landed apart: what would refuse one branch is said and compared all the same, less what the gate
-    # refuses
+    # a full run compares commits already merged, which may hold a harness change and a change to the app that
+    # landed apart: what would refuse one branch is said and compared all the same, less what the gate refuses
     allowances, dropped = _honoured(allowances, list(recorded.files))
-    notes = [f"in these commits: {reason}" for reason in refused] + dropped + _harness_notes(changed, harness)
+    notes = [
+        *read_from,
+        *(f"in these commits: {reason}" for reason in refused),
+        *dropped,
+        *_harness_notes(changed, harness, rules.harness_files),
+    ]
 
     executed = load_executed(base_out)
-    selection = None if full else _choose(changed, _added_or_removed(recorded.commit), executed)
+    selection = None if full else _choose(changed, _added_or_removed(recorded.commit), executed, rules.everything_when)
     head = _record_selected(head_out, selection, executed)
     if selection is not None:
-        recorded = Record(recorded.commit, True, compared(recorded.files, executed or {}, selection))
+        recorded = Record(recorded.commit, True, compared(recorded.files, executed or {}, selection, rules.whole))
     return _report(recorded, head, allowances, notes, diff_file)
 
 
 def _measure(executed_file: pathlib.Path, count: int, ref: str) -> int:
     commits = []
     for sha in _git("rev-list", "--first-parent", f"-{count}", ref).splitlines():
-        listed = [
-            line.split("\t", 1) for line in _git("diff", "--name-status", "--no-renames", f"{sha}^", sha).splitlines()
-        ]
+        listed = _statuses(f"{sha}^", sha)
         moved = [path for status, path in listed if status in ("A", "D")]
         commits.append((sha, _git("log", "-1", "--format=%s", sha), [path for _, path in listed], moved))
-    measure(ROOT, json.loads(executed_file.read_text()), commits)
+    try:
+        rules = load_rules(ROOT)
+    except LocalError as error:
+        print(error, file=sys.stderr)
+        return 2
+    measure(ROOT, json.loads(executed_file.read_text()), commits, rules.everything_when)
     return 0
 
 
@@ -481,6 +544,7 @@ def main() -> int:
     checked.add_argument("--out", type=pathlib.Path, default=STATE / "behaviour-head")
     checked.add_argument("--diff", type=pathlib.Path, default=STATE / "behaviour.diff")
     checked.add_argument("--full", action="store_true", help="record everything, whatever the change reaches")
+    checked.add_argument("--pulls", type=pathlib.Path, help="what the merged pull requests allowed, as read")
     measured = commands.add_parser("measure", help="what the selection would record for recent commits")
     measured.add_argument("--map", type=pathlib.Path, default=STATE / "behaviour-base.executed.json")
     measured.add_argument("--commits", type=int, default=40)
@@ -493,7 +557,7 @@ def main() -> int:
         return base(args.ref, args.out)
     if args.command == "measure":
         return _measure(args.map, args.commits, args.ref)
-    return check(args.base, args.out, args.diff, args.ref, full=args.full)
+    return check(args.base, args.out, args.diff, args.ref, full=args.full, pulls=args.pulls)
 
 
 if __name__ == "__main__":

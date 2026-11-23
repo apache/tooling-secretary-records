@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 """What a branch may ask of the behaviour comparison (`scripts/ci/behaviour.py`), read from git.
 
 The comparison runs the branch's own code, so whatever the branch says about itself is checked against
@@ -43,11 +44,14 @@ HARNESS: Final = "Behaviour-Harness"
 HARNESS_FILES: Final = (
     "tests/behaviour/*",
     "tests/conftest.py",
-    "tests/data/*",
     "scripts/ci/behaviour*.py",
     "scripts/ci/trailers.py",
 )
-"""What the record is made with: a change here changes what is recorded without the app changing."""
+"""What the record is made with: a change here changes what is recorded without the app changing.
+
+A repository adds the data its record reads in `scripts/local/behaviour.toml` (`behaviour_rules.py`).
+Name only what the record reads: what only pytest reads moves with the app change that moves it, and a
+branch changing both has to be compared, not refused as a harness change beside one to the app."""
 
 HARNESS_MARKS: Final = ("scripts/ci/behaviour.py", "tests/behaviour")
 """What a commit holds where it can record itself."""
@@ -74,10 +78,12 @@ def branch_tip(base: str, cwd: pathlib.Path) -> str:
     return parents[2] if len(parents) == 3 and parents[1] == based else "HEAD"
 
 
-def claims(key: str, base: str, cwd: pathlib.Path) -> list[tuple[str, str]]:
-    """`(value, subject)` for every `key:` trailer on the branch's own commits since `base`."""
-    head = branch_tip(base, cwd)
-    return [(value, subject) for subject, value in trailers.values(key, base, cwd, head=head, own=True)]
+def claims(key: str, base: str, cwd: pathlib.Path, *, head: str | None = None) -> list[tuple[str, str]]:
+    """`(value, subject)` for every `key:` trailer on the branch's own commits since `base`: the branch
+    ending at `head`, or at this checkout's tip. A merged pull request's head is read by the same rule
+    (`behaviour_pulls.py`)."""
+    tip = head or branch_tip(base, cwd)
+    return [(value, subject) for subject, value in trailers.values(key, base, cwd, head=tip, own=True)]
 
 
 def too_broad(glob: str, recorded: list[str]) -> bool:
@@ -109,7 +115,7 @@ def touched(changed: list[str], globs: tuple[str, ...]) -> list[str]:
 def refused(allowances: list[tuple[str, str]], recorded: list[str]) -> list[tuple[tuple[str, ...], str]]:
     """The allowances the gate refuses, each with why: one too broad or unanchored by itself, and the
     patterns among the rest when together they match every path the base record holds - `http/*` and
-    `scenarios/*` where that is all there is. Plain paths count towards the whole but are never refused."""
+    `tasks/*` where that is all there is. Plain paths count towards the whole but are never refused."""
     found: list[tuple[tuple[str, ...], str]] = []
     kept = []
     for glob, subject in allowances:
@@ -135,11 +141,15 @@ def refused(allowances: list[tuple[str, str]], recorded: list[str]) -> list[tupl
 
 
 def refusals(
-    changed: list[str], allowances: list[tuple[str, str]], harness: list[tuple[str, str]], recorded: list[str]
+    changed: list[str],
+    allowances: list[tuple[str, str]],
+    harness: list[tuple[str, str]],
+    recorded: list[str],
+    harness_files: tuple[str, ...] = HARNESS_FILES,
 ) -> list[str]:
     """Why the branch may not be compared at all, or nothing. `recorded` is every path the base record holds."""
     reasons = [reason for _, reason in refused(allowances, recorded)]
-    tools = touched(changed, HARNESS_FILES)
+    tools = touched(changed, harness_files)
     if not tools:
         return reasons
     named = ", ".join(tools[:5]) + (f" and {len(tools) - 5} more" if len(tools) > 5 else "")

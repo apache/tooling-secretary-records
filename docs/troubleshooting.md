@@ -164,10 +164,10 @@ Re-run a lone failure before believing it.
 
 ## The suite tests a change you did not make
 
-`SR_KEEP=1` leaves the app container up so the next narrow run skips most of a
+`DEVKIT_KEEP=1` leaves the app container up so the next narrow run skips most of a
 minute of startup. The `e2e/` directory is bind-mounted, so spec edits are picked up
 live - but everything under `app/` and `assets/` is inside the running server,
-and a change there needs the container restarted. Drop `SR_KEEP` (or remove the
+and a change there needs the container restarted. Drop `DEVKIT_KEEP` (or remove the
 server container) after one.
 
 `scripts/e2e-container.sh` prints a warning when it reuses a container. It is one
@@ -257,9 +257,9 @@ overrun is charged to itself rather than to a bystander.
 `podman ps --filter label=secretary-records.checkout` lists those, and says which checkout each
 came from. It does not list them all: `scripts/e2e-container.sh` and
 `scripts/e2e-typecheck.sh` build their own invocations and have none of it, and the
-e2e app server outlives its run under `SR_KEEP` by design. A container started by
+e2e app server outlives its run under `DEVKIT_KEEP` by design. A container started by
 hand has none of it either - use `make container-keep` for one you mean to keep,
-and `SR_TIMEOUT` or `SR_MEMORY` for what that does not cover.
+and `DEVKIT_TIMEOUT` or `DEVKIT_MEMORY` for what that does not cover.
 
 ## The ratchet says `python-cognitive: could not be read`, exited 139
 

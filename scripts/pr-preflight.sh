@@ -1,20 +1,24 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # What this branch obliges you to do, read off the files it touches.
 #
-# AGENTS.md and the directory files beside the code hold more rules than anybody recalls
-# at the moment one applies. Most are conditional on what a change touches, which is a
-# question a diff answers - so it is asked here rather than remembered. Run it before the
-# pull request, and again after a rebase that pulled in more files.
+# AGENTS.md and the files beside the code hold more rules than anybody recalls at the moment one
+# applies. Most are conditional on what a change touches, which is a question a diff answers - so it is
+# asked here rather than remembered. Run it before the pull request, and again after a rebase that pulled
+# in more files.
 #
 #   scripts/pr-preflight.sh [base]     base defaults to origin/main
 #
-# It prints and exits 0 unless the last section could not look at everything: an unknown
-# base, an origin it could not read, work on origin this checkout has not fetched, a branch
-# git refused to compare, or a path git hands back quoted. Nothing here is a gate: `make
-# container-verify` is the gate, and a checklist that could fail a build would be worked
-# around within a week. But that last section answers `none`, which is read as nobody else
-# being in these files and so as leave to restructure them - so it is printed only when the
-# scan looked at every branch, and anything less says what it could not see.
+# The rules that hold in every repository are here. A repository adds its own in
+# scripts/local/preflight.toml (the format is in scripts/ci/preflight_rules.py), which this reads through
+# that script: python3 3.11 or newer, for that file alone. Without the file there are no others.
+#
+# It prints and exits 0 unless it could not look at everything: an unknown base, a rules file it cannot
+# read, an origin it could not read, work on origin this checkout has not fetched, a branch git refused to
+# compare, or a path with a newline in it. Nothing here is a gate: a checklist that could fail a build
+# would be worked around within a week. But the last section answers `none`, which is read as nobody else
+# being in these files and so as leave to restructure them - so it is printed only when the scan looked at
+# every branch, and anything less says what it could not see.
 
 set -eu
 
@@ -25,6 +29,7 @@ base=${1:-origin/main}
 # nothing. The contention scan then printed "none" while the collision was real. Same
 # question from the other side: `git ls-files --others` lists only what is under the cwd,
 # so an untracked file elsewhere in the tree fell out of the rule list too.
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || {
     printf 'not inside a git repository\n' >&2
     exit 1
@@ -48,25 +53,40 @@ if ! merge_base=$(git merge-base "$base" HEAD 2>/dev/null); then
     exit 1
 fi
 
-# -c core.quotePath=false so a path with a non-ASCII byte comes back as itself rather than
-# as an escaped string, which would then match no file when it is used as a pathspec. It
-# does nothing for a path holding a quote, a backslash or a control character, which git
-# quotes regardless - rare enough here to leave, common enough to name.
-git_() {
-    git -c core.quotePath=false "$@"
+# The paths `git <command> <arguments>` lists, one to a line. Asked for with -z, because the
+# readable listing is not the path: git quotes and escapes a path outside printable ASCII -
+# a byte above it, a `"`, a backslash, a tab - and the escaped spelling matches no rule
+# below and no file as a pathspec. NUL-delimited, git hands over the bytes it has. A line
+# cannot hold a newline, so one in a path becomes a \001 byte, which the scan below
+# reports rather than turning into a pathspec that matches nothing.
+#
+# Through a file rather than a pipe, because a pipe answers with tr's status: a listing git
+# could not give would read as an empty one, and the script would say "nothing changed".
+# The exit leaves the command substitution the call is in, which fails the assignment, and
+# set -e stops the script there.
+soh=$(printf '\001')
+listing=$(mktemp)
+rules_facts=$(mktemp)
+rules_errors=$(mktemp)
+trap 'rm -f "$listing" "$rules_facts" "$rules_errors"' EXIT
+paths() {
+    _command=$1
+    shift
+    git "$_command" -z "$@" > "$listing" || exit 1
+    tr '\n\0' '\001\n' < "$listing"
 }
 
 # --no-renames, because a rename is reported as its destination alone and the question here
 # is who else is in the path this branch is moving away from. AGENTS.md wrote the scan for
 # "a split, an extraction, a rename across a module", and with rename detection on, the one
 # path that matters was never in the list to ask about.
-changed=$(git_ diff --name-only --no-renames "$merge_base" HEAD; git_ diff --name-only --no-renames; git_ diff --name-only --no-renames --staged; git_ ls-files --others --exclude-standard)
+changed=$(paths diff --name-only --no-renames "$merge_base" HEAD; paths diff --name-only --no-renames; paths diff --name-only --no-renames --staged; paths ls-files --others --exclude-standard)
 changed=$(printf '%s\n' "$changed" | sort -u | sed '/^$/d')
 
 # What this branch adds, as opposed to what it edits. The rules differ: a licence header
 # is owed by a new file and by no other. Rename detection stays on here, so that a file
 # this branch only moved is not asked for one.
-added=$(git_ diff --name-only --diff-filter=A "$merge_base" HEAD; git_ diff --name-only --diff-filter=A --staged; git_ ls-files --others --exclude-standard)
+added=$(paths diff --name-only --diff-filter=A "$merge_base" HEAD; paths diff --name-only --diff-filter=A --staged; paths ls-files --others --exclude-standard)
 added=$(printf '%s\n' "$added" | sort -u | sed '/^$/d')
 
 if [ -z "$changed" ]; then
@@ -75,11 +95,11 @@ if [ -z "$changed" ]; then
 fi
 
 touches() {
-    printf '%s\n' "$changed" | grep -qE "$1"
+    printf '%s\n' "$changed" | grep -qE -- "$1"
 }
 
 adds() {
-    printf '%s\n' "$added" | grep -qE "$1"
+    printf '%s\n' "$added" | grep -qE -- "$1"
 }
 
 say() {
@@ -90,77 +110,92 @@ say() {
     done
 }
 
-printf 'Against %s, this branch touches %s file(s).\n' "$base" "$(printf '%s\n' "$changed" | wc -l | tr -d ' ')"
-
-# Both test layers, and the book that decides what the interface may look like. The
-# interface is not only `assets/`: app/client/templates/ is the server-rendered half, and
-# AGENTS.md's rule is about an interface change rather than about a directory.
-if touches '^assets/|^app/(client|admin)/(templates|static)/'; then
-    say 'the interface' \
-        'Read the design book chapter for what you are touching, and load the' \
-        'frontend-design skill. Both, before you touch it: docs/design-book.html.' \
-        'A new token, hue, chip, icon meaning or type role needs an issue first AND a' \
-        'change to the book in the same PR - CONTRIBUTING.md, Design changes.' \
-        'A UI change needs vitest tests beside the code AND Playwright coverage in' \
-        'e2e/tests/. One layer is an incomplete change.' \
-        'Screenshots in the PR, captured from the spec: scripts/pr-screenshots.sh'
+# The rules of this repository, read before anything is printed: a file that cannot be used stops the
+# run here, and does not leave a checklist that looks complete and is not.
+rules_file=${PREFLIGHT_RULES:-scripts/local/preflight.toml}
+tab=$(printf '\t')
+newline='
+'
+if [ -f "$rules_file" ]; then
+    python=${PREFLIGHT_PYTHON:-python3}
+    if ! command -v "$python" > /dev/null 2>&1; then
+        printf 'preflight: %s cannot be read: it needs python3, 3.11 or newer, and there is none\n' "$rules_file" >&2
+        exit 1
+    fi
+    if ! "$python" -I "$script_dir/ci/preflight_rules.py" "$rules_file" > "$rules_facts" 2> "$rules_errors"; then
+        cat "$rules_errors" >&2
+        exit 1
+    fi
+    # grep reads a pattern it cannot parse as "nothing matches", which is the answer this must never give
+    # wrongly: so each pattern is tried once, on nothing.
+    while IFS="$tab" read -r _kind _value; do
+        case $_kind in
+            touches | adds | reads | reads_in)
+                _rc=0
+                printf '' | grep -E -- "$_value" > /dev/null 2>&1 || _rc=$?
+                if [ "$_rc" -gt 1 ]; then
+                    printf 'preflight: %s: grep cannot read the pattern %s\n' "$rules_file" "$_value" >&2
+                    exit 1
+                fi
+                ;;
+            *) : ;;
+        esac
+    done < "$rules_facts"
 fi
 
-# The async matrix, which is where this repository keeps finding defects. Read against the
-# worktree rather than against HEAD: every other rule here fires on uncommitted work, and
-# this one asking for a commit first made it silent exactly while the component was being
-# written.
-component_lines() {
-    git_ diff "$merge_base" -- ':(literal)assets/src/js/components/' | sed -n 's/^+//p'
-    # A component this branch has not committed yet is in no diff at all, so it is read
-    # whole. Every line of a new file is a line the branch added.
-    printf '%s\n' "$added" | grep -E '^assets/src/js/components/.*\.svelte$' | while read -r _f; do
-        [ -f "$_f" ] && cat -- "$_f"
+printf 'Against %s, this branch touches %s file(s).\n' "$base" "$(printf '%s\n' "$changed" | wc -l | tr -d ' ')"
+
+# The lines this branch adds in the changed files that match the pattern $1: what is in the diff against the
+# merge base, read against the worktree rather than against HEAD - every rule here fires on uncommitted work,
+# and a rule that asked for a commit first would be silent exactly while the file is being written - and,
+# whole, a file the branch adds that no diff shows yet.
+added_lines() {
+    printf '%s\n' "$changed" | grep -E -- "$1" | while IFS= read -r _f; do
+        case $_f in *"$soh"*) continue ;; *) : ;; esac
+        git diff "$merge_base" -- ":(literal)$_f" | sed -n 's/^+//p'
+        if printf '%s\n' "$added" | grep -qxF -- "$_f" && [ -f "$_f" ]; then
+            cat -- "$_f"
+        fi
     done
 }
 
-if printf '%s\n' "$changed" | grep -qE '^assets/src/js/components/.*\.svelte$'; then
-    if component_lines | grep -qE '(fetch\(|await )'; then
-        say 'a component that fetches - answer these before the review does' \
-            'A response arriving late, after a newer one, after the surface closes,' \
-            'after an error, after a success: what is on screen, and what does it claim?' \
-            'What does the page draw when its first read fails?' \
-            'Does the control commit what the list is showing, or what the form now says?'
+# One rule, once its facts have been read: printed when it applies.
+r_title=''
+fire_rule() {
+    [ -n "$r_title" ] || return 0
+    _matched=no
+    if [ -n "$r_touches" ] && touches "$r_touches"; then _matched=yes; fi
+    if [ -n "$r_adds" ] && adds "$r_adds"; then _matched=yes; fi
+    if [ "$_matched" = yes ] && [ -n "$r_reads" ]; then
+        added_lines "${r_reads_in:-$r_touches}" | grep -qE -- "$r_reads" || _matched=no
     fi
+    if [ "$_matched" = yes ]; then
+        printf '\n  %s\n' "$r_title"
+        printf '%s\n' "$r_say" | while IFS= read -r _line; do
+            printf '      %s\n' "$_line"
+        done
+    fi
+}
+
+if [ -f "$rules_file" ]; then
+    while IFS="$tab" read -r _kind _value; do
+        case $_kind in
+            rule)
+                fire_rule
+                r_title=$_value r_touches='' r_adds='' r_reads='' r_reads_in='' r_say=''
+                ;;
+            touches) r_touches=${r_touches:+$r_touches|}$_value ;;
+            adds) r_adds=${r_adds:+$r_adds|}$_value ;;
+            reads) r_reads=$_value ;;
+            reads_in) r_reads_in=${r_reads_in:+$r_reads_in|}$_value ;;
+            say) r_say=${r_say:+$r_say$newline}$_value ;;
+            *) : ;;
+        esac
+    done < "$rules_facts"
+    fire_rule
 fi
 
-if touches '^app/(api/routes|admin)/'; then
-    say 'app/api/routes/ - endpoints' \
-        'Every mutating route carries require_role, and a test shows a role without it' \
-        'refused. The queue holds personal data, so reading is role-gated too (R-1).' \
-        'A mutating endpoint that schedules background work needs a test that drains the' \
-        'tasks and asserts the effect: a 200 says nothing about the half that runs after it.'
-fi
-
-if touches '^e2e/'; then
-    say 'e2e/ - the end-to-end harness' \
-        'make e2e-typecheck. Running the suite says nothing about the types in it.' \
-        'A reused SR_KEEP container serves the bundle from when it started - drop it' \
-        'after any change under app/ or assets/. See e2e/README.md.'
-fi
-
-if touches '^app/db/models\.py$'; then
-    say 'app/db/models.py - a new table' \
-        'Add a sequential Alembic migration in app/db/migrations/versions/.' \
-        'Put it in BROWSABLE, with no column holding personal fields, or in' \
-        'NOT_BROWSABLE (app/admin/routes.py; AGENTS.md, Adding tables to the DB).'
-fi
-
-# What a user can now do is a claim the Documentation page makes, and it is the only
-# account of the workflow anybody reads.
-if touches '^app/(api/routes|client|admin)/|^assets/src/js/components/'; then
-    say 'a control moved, was renamed, or somebody can now do something new' \
-        'The Documentation page changes in the same PR: app/md/documentation/.' \
-        'Say who, not just what - the page is read by people checking whether a' \
-        'control is theirs, and a route that refuses a role has to say so.'
-fi
-
-if touches '^(pyproject\.toml|uv\.lock|\.python-version|\.tool-versions)$'; then
+if touches '^(pyproject\.toml|uv\.lock)$'; then
     say 'dependencies' \
         'uv.lock is the source of truth. Production installs it with uv sync --frozen.'
 fi
@@ -213,13 +248,13 @@ set +f
 IFS=$saved_ifs
 
 pathspecs=''
-quoted_path=no
+newline_path=no
 for _p in "$@"; do
-    # git quotes a path holding a `"`, a backslash or a control character whatever
-    # core.quotePath says, and a quoted path matches no file as a pathspec. Rare enough not
-    # to handle, common enough that the scan must not answer "none" over it.
+    # A newline in a path came through `paths` as a \001, and the pathspec made of it matches
+    # nothing - so the scan must not answer "none" over it. A path holding a \001 of its own
+    # is reported the same way, and matches as itself all the same.
     case $_p in
-        '"'*) quoted_path=yes ;;
+        *"$soh"*) newline_path=yes ;;
         *) : ;;
     esac
     pathspecs="$pathspecs:(literal)$_p
@@ -260,7 +295,7 @@ for ref in $(git for-each-ref --format='%(refname:short)' refs/remotes/origin); 
     fi
     # Not `2>/dev/null`: git failing here - too many pathspecs for one argv, most likely -
     # printed nothing, which is indistinguishable from finding nothing.
-    if ! overlap=$(git_ diff --name-only "$ref_base" "$ref" -- "$@" 2>&1); then
+    if ! overlap=$(git diff --name-only "$ref_base" "$ref" -- "$@" 2>&1); then
         printf '      %s (could not be compared: %s)\n' "$ref" "$(printf '%s' "$overlap" | head -1)"
         unreadable=yes
         continue
@@ -293,10 +328,9 @@ else
     fi
 fi
 
-if [ "$quoted_path" = yes ]; then
-    printf '      (a changed path holds a quote, a backslash or a control character, which\n'
-    printf '       git quotes back and which then matches nothing - this list cannot see\n'
-    printf '       that file)\n'
+if [ "$newline_path" = yes ]; then
+    printf '      (a changed path holds a newline, which a list of paths one to a line\n'
+    printf '       cannot hold - this list cannot see that file)\n'
     unreadable=yes
 fi
 

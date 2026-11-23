@@ -29,6 +29,7 @@
 # now and not where it pointed when the runner image was built - `archive.ubuntu.com`,
 # `azure.archive.ubuntu.com` and `<region>.ec2.archive.ubuntu.com` are all the same archive
 # and a runner image can ship any of them.
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 set -eu
 
 if [ "$#" -lt 2 ]; then

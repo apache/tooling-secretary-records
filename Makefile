@@ -1,7 +1,7 @@
-.PHONY: init build certs check dev dev-server e2e-test e2e-test-host e2e-quick e2e-typecheck lint run sync \
-	sync-dev test test-coverage pytest verify quality quality-show quality-base snapshot snapshot-base snapshot-full \
-	container-check container-test container-test-coverage container-test-py314 \
-	container-pytest container-verify container-quality container-quality-base \
+.PHONY: init build certs check check-all dev dev-server e2e-test e2e-test-host e2e-quick e2e-typecheck lint run sync \
+	sync-dev test test-python test-frontend test-coverage pytest verify verify-fresh quality quality-show quality-base snapshot snapshot-base snapshot-full \
+	container-check container-check-all container-test container-test-coverage container-test-py314 \
+	container-pytest container-verify container-verify-fresh container-quality container-quality-base \
 	container-snapshot container-snapshot-base container-snapshot-full container-shell container-keep container-stop
 
 HOME ?= /home/$(USER)
@@ -26,7 +26,17 @@ $(ASSETS_MANIFEST):
 
 certs: state/cert.pem state/key.pem
 
+# The hooks over what this checkout changed since it left CHECK_REF - committed, staged,
+# modified or untracked - which is what a commit needs. Every file instead where the list
+# cannot say what a change reaches - a deletion, a rename, a config file, no merge base:
+# scripts/ci/changed.py. `check-all` runs every hook over every file: `verify` uses it before a
+# push, and CI's analyze job runs the same.
+CHECK_REF ?= origin/main
+
 check:
+	@uv run scripts/ci/changed.py --ref $(CHECK_REF)
+
+check-all:
 	uv run prek run --all-files
 
 # svelte-check and eslint - prettier's own check runs separately (`check`'s yarn-format hook)
@@ -56,13 +66,24 @@ sync-dev:
 # outgrows what the extra parallelism saves, which is why this caps rather than using
 # `-n auto`. Run `make test PYTEST_WORKERS=1` for a serial run - the one to reach for when a
 # failure is easier to read without interleaved output, or a test hangs.
-PYTEST_WORKERS ?= $(shell n=$$(nproc 2>/dev/null || echo 1); if [ "$$n" -gt 6 ]; then echo 6; else echo "$$n"; fi)
+#
+# From the host, the container-* targets that run the whole suite choose the count
+# themselves, up to the same cap, from the memory the machine has free:
+# DEVKIT_SIZE_WORKERS, read by scripts/container-size.sh. `DEVKIT_SIZE_WORKERS=0` puts the
+# fixed settings back.
+PYTEST_WORKERS_MAX := 6
+PYTEST_WORKERS ?= $(shell n=$$(nproc 2>/dev/null || echo 1); if [ "$$n" -gt $(PYTEST_WORKERS_MAX) ]; then echo $(PYTEST_WORKERS_MAX); else echo "$$n"; fi)
+DEVKIT_SIZE_WORKERS ?= $(PYTEST_WORKERS_MAX)
 # Recursive rather than immediate, so that the target-specific override on `pytest` below
 # is the one that counts when that target expands it.
 PYTEST_PARALLEL = $(if $(filter-out 0 1,$(PYTEST_WORKERS)),-n $(PYTEST_WORKERS))
 
-test:
+test: test-python test-frontend
+
+test-python:
 	uv run pytest $(PYTEST_PARALLEL)
+
+test-frontend:
 	cd assets && yarn test
 
 # One question, asked as narrowly as you can ask it:
@@ -81,10 +102,19 @@ pytest:
 # Everything that gates a push, behind one exit code. Five commands is four chances to
 # run only some of them, and the one skipped is the one that fails in CI.
 #
+# The stages - check-all, lint, test-python, test-frontend, snapshot, quality - run at the
+# same time, each into a log under state/verify/, and a stage that passed is not run again
+# until something it reads changes: scripts/ci/verify.py, with the stages in
+# scripts/local/verify.toml. `verify-fresh` runs every one.
+#
 # The end-to-end suite is deliberately not in here: it takes 8 to 15 minutes against the
 # seconds these take, and it answers a different question. Run `make e2e-test` when the
 # change touches what a browser sees.
-verify: check lint test snapshot quality
+verify:
+	QUALITY_BASE=$(QUALITY_BASE) uv run scripts/ci/verify.py
+
+verify-fresh:
+	QUALITY_BASE=$(QUALITY_BASE) uv run scripts/ci/verify.py --fresh
 
 # Coverage instrumentation slows the run down noticeably, so it is kept out of
 # the default `test` target and run separately on demand. Serial: coverage
@@ -161,7 +191,7 @@ e2e-typecheck:
 #
 #   make e2e-quick FILTER=home
 #
-# Starting the app costs about seventy seconds, which dwarfs a narrow run; SR_KEEP keeps
+# Starting the app costs about seventy seconds, which dwarfs a narrow run; DEVKIT_KEEP keeps
 # it for the next one and takes a three-test run from 108s to 40s. The e2e/ directory is
 # bind-mounted, so spec edits are picked up live.
 #
@@ -170,7 +200,7 @@ e2e-typecheck:
 # container) is what makes the next answer mean anything. Run the whole suite that way
 # too - a kept container has served whatever the last run left behind.
 e2e-quick:
-	SR_KEEP=1 scripts/e2e-container.sh $(FILTER)
+	DEVKIT_KEEP=1 scripts/e2e-container.sh $(FILTER)
 
 # The same suite run directly on the host. This needs node, the Playwright
 # browsers and Python installed locally, which the container-only rule in
@@ -192,10 +222,16 @@ e2e-test-host: $(ASSETS_MANIFEST)
 # tree bind-mounted. Nothing is installed on the host.
 
 container-check:
-	scripts/container.sh make check
+	scripts/container.sh make check CHECK_REF=$(CHECK_REF)
 
+container-check-all:
+	scripts/container.sh make check-all
+
+# The whole suite, sized to the machine (DEVKIT_SIZE_WORKERS, above): container-pytest is
+# not, since a narrow serial run holds a fraction of what the whole suite does, and
+# waiting behind a gate would cost it more than it could save.
 container-test:
-	scripts/container.sh make test
+	DEVKIT_SIZE_WORKERS=$(DEVKIT_SIZE_WORKERS) scripts/container.sh make test
 
 # The narrow run and the one-signal run, each in a single container start:
 #
@@ -208,7 +244,10 @@ container-pytest:
 	scripts/container.sh make pytest ARGS="$(ARGS)"
 
 container-verify:
-	scripts/container.sh make verify
+	DEVKIT_SIZE_WORKERS=$(DEVKIT_SIZE_WORKERS) scripts/container.sh make verify
+
+container-verify-fresh:
+	DEVKIT_SIZE_WORKERS=$(DEVKIT_SIZE_WORKERS) scripts/container.sh make verify-fresh
 
 container-test-coverage:
 	scripts/container.sh make test-coverage
@@ -230,14 +269,14 @@ container-snapshot-base:
 container-snapshot-full:
 	scripts/container.sh make snapshot-full SNAPSHOT_REF=$(SNAPSHOT_REF)
 
-# The tests in a venv of their own on Python 3.14, as `SR_PYTHON=3.14` makes it. 3.14 is also the
-# project's default now, so this repeats container-test; give SR_PYTHON another version to try it.
+# The tests in a venv of their own on Python 3.14, as `DEVKIT_PYTHON=3.14` makes it. 3.14 is also the
+# project's default now, so this repeats container-test; give DEVKIT_PYTHON another version to try it.
 container-test-py314:
-	SR_PYTHON=3.14 scripts/container.sh make test
+	DEVKIT_PYTHON=3.14 scripts/container.sh make test
 
 # No deadline: an interactive shell outlives its command by design.
 container-shell:
-	SR_TIMEOUT=0 scripts/container.sh sh
+	DEVKIT_TIMEOUT=0 scripts/container.sh sh
 
 # A container that outlives the command which started it, for browsing the app by hand -
 # and so that neither a person nor an agent assembles a `podman run` of its own, which is
@@ -257,9 +296,11 @@ container-shell:
 # abspath rather than dir alone: a plain `make` here gives `./`, whose basename is `.`,
 # and the suffix would be `-.` for every checkout.
 MAKEFILE_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-CHECKOUT_SUFFIX := $(shell . $(MAKEFILE_DIR)/scripts/checkout-id.sh && \
+# checkout-id.sh reads devkit.conf from the directory of the script that sources it: script_dir.
+SERVICE := $(shell sed -n 's/^DEVKIT_SERVICE=//p' $(MAKEFILE_DIR)/devkit.conf | head -n 1)
+CHECKOUT_SUFFIX := $(shell script_dir=$(MAKEFILE_DIR)/scripts; . $(MAKEFILE_DIR)/scripts/checkout-id.sh && \
 	checkout_suffix "$(MAKEFILE_DIR)")
-KEEP_NAME ?= secretary-records-keep$(CHECKOUT_SUFFIX)
+KEEP_NAME ?= $(SERVICE)-keep$(CHECKOUT_SUFFIX)
 KEEP_CMD ?= scripts/run-preview.sh
 # on the loopback address alone: the preview signs anybody in, as anybody, with /e2e/login
 KEEP_PORT ?= 127.0.0.1:8080:8080
@@ -268,7 +309,7 @@ KEEP_PORT ?= 127.0.0.1:8080:8080
 # on 0.0.0.0. It needs no config.yaml - the one CONTRIBUTING.md has you make is for run-dev.sh on the
 # host, whose localhost no published port reaches from inside a container.
 container-keep:
-	SR_DETACH=1 SR_CONTAINER_NAME=$(KEEP_NAME) SR_PORT=$(KEEP_PORT) \
+	DEVKIT_DETACH=1 DEVKIT_CONTAINER_NAME=$(KEEP_NAME) DEVKIT_PORT=$(KEEP_PORT) \
 		scripts/container.sh $(KEEP_CMD)
 
 # The runtime the same way container.sh chooses it, or this reports "was not running"
@@ -277,7 +318,7 @@ container-keep:
 # before the removal, because `rm -f` succeeds against a name that was never there;
 # `--type container` because a bare `inspect` matches images and volumes too.
 container-stop:
-	@runtime=$${SR_RUNTIME:-}; \
+	@runtime=$${DEVKIT_RUNTIME:-}; \
 	if [ -z "$$runtime" ]; then \
 		if command -v podman >/dev/null 2>&1; then runtime=podman; \
 		elif command -v docker >/dev/null 2>&1; then runtime=docker; fi; \
