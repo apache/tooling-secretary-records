@@ -108,10 +108,11 @@ variables the scripts read all start with `DEVKIT_`.
   remove the server container) after one. Run the whole suite without it.
 - **Work in a worktree of your own, and expect company.** Several sessions run
   in this repository at once, one per topic, each in its own linked git
-  worktree. Make one rather than taking over an existing checkout:
+  worktree. Make one rather than taking over an existing checkout, beside it
+  and named after the repository (`tooling-directory`, say):
 
   ```sh
-  git worktree add ../tooling-agenda-<topic> -b feat/<topic> origin/main
+  git worktree add ../<repository>-<topic> -b feat/<topic> origin/main
   ```
 
   Never switch another worktree's branch, and never bare `git stash` — the stash
@@ -122,7 +123,7 @@ variables the scripts read all start with `DEVKIT_`.
   PR has merged, or its work is otherwise over:
 
   ```sh
-  scripts/worktree-done.sh ../tooling-agenda-<topic>
+  scripts/worktree-done.sh ../<repository>-<topic>
   ```
 
   It removes the worktree, its virtualenv and node_modules volumes, its e2e server
