@@ -36,7 +36,8 @@
 #   DEVKIT_E2E_WORKERS      run this many servers side by side, one per Playwright worker
 #                        (see e2e/supervisor.py), so different spec files can run at
 #                        the same time instead of one at a time. Unset (or 1) keeps
-#                        today's single server.
+#                        today's single server. A repository without e2e/supervisor.py
+#                        runs that one server from e2e/serve.py, and refuses more.
 
 set -eu
 
@@ -97,6 +98,13 @@ if [ "${DEVKIT_ISOLATED:-}" = 1 ]; then
         echo "e2e: FAILED - exited $status, and the suite above did not pass"
     fi
     exit "$status"
+fi
+
+# A repository that has no e2e/supervisor.py runs the one server that e2e/serve.py starts, and has nothing
+# that could run a pool of them.
+if [ "$WORKERS" -gt 1 ] 2>/dev/null && [ ! -f "$repo_root/e2e/supervisor.py" ]; then
+    echo "DEVKIT_E2E_WORKERS=$WORKERS needs e2e/supervisor.py, which this repository does not have" >&2
+    exit 2
 fi
 
 if [ -n "${DEVKIT_RUNTIME:-}" ]; then
@@ -218,7 +226,11 @@ else
         # SUPERVISOR_PORT for a per-spec-file POST /restart (see e2e/supervisor.py):
         # kill the app, throw away its state directory, boot a clean one. Without it
         # every spec in the run shares one server.
-        exec uv run python e2e/supervisor.py
+        # A repository with no e2e/supervisor.py has the one server that e2e/serve.py starts.
+        if [ -f e2e/supervisor.py ]; then
+            exec uv run python e2e/supervisor.py
+        fi
+        exec uv run python e2e/serve.py
     ' >/dev/null
 fi
 

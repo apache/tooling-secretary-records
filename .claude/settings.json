@@ -14,7 +14,6 @@
       "Bash(make e2e-test:*)",
       "Bash(scripts/container.sh:*)",
       "Bash(scripts/e2e-container.sh:*)",
-      "Bash(.claude/hooks/guard-bash.test.sh:*)",
       "Bash(git blame:*)",
       "Bash(git branch --list:*)",
       "Bash(git diff:*)",
