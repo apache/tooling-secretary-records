@@ -70,6 +70,11 @@ def _load_manifest() -> None:
 
 @CLIENT.after_request
 async def _set_asset_cache_control(response: quart.Response) -> quart.Response:
+    if response.status_code >= 400:
+        # a bundle that is not there yet is a 404 now and a file after the next build: never kept
+        if quart.request.path.startswith(f"{CLIENT.static_url_path}/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
     if quart.request.path.startswith(_HASHED_ASSET_PREFIX):
         response.headers["Cache-Control"] = _HASHED_ASSET_CACHE_CONTROL
     elif quart.request.path.startswith(f"{CLIENT.static_url_path}/"):

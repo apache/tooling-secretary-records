@@ -180,3 +180,11 @@ async def test_the_session_cookie_is_sent_same_site(running_app):
     cookies = response.headers.getlist("Set-Cookie")
     assert cookies, "the test login sets a session"
     assert all("SameSite=Lax" in cookie for cookie in cookies)
+
+
+async def test_a_bundle_that_is_not_there_is_never_cached(running_app):
+    """A hashed bundle is immutable once it exists; the 404 before the next build must not be kept."""
+    response = await running_app.test_client().get("/assets/bundled/not-built-yet.js")
+
+    assert response.status_code == 404
+    assert response.headers["Cache-Control"] == "no-store"

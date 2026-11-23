@@ -57,10 +57,13 @@ else
     cp "$(mkcert -CAROOT)/rootCA.pem" state
 fi
 
-cp config.yaml.example config.yaml
+# The config.yaml copied from /mnt is the one CONTRIBUTING.md has you write, with its roles: kept.
+[ -f config.yaml ] || cp config.yaml.example config.yaml
 sed -i 's|host: localhost|host: 0.0.0.0|' config.yaml
 
 make sync
 make init
+# the frontend's dependencies, and a first bundle: the watcher `make dev` starts imports its plugins
+make build
 
 make dev
