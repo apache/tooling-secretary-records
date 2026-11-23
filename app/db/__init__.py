@@ -29,7 +29,7 @@ import sqlalchemy.ext.asyncio
 
 from app import config
 from app.db.engine import Session, create_async_engine
-from app.db.models import DBBase
+from app.db.models import DBBase, IclaSubmission
 
 if TYPE_CHECKING:
     import asfquart.base as base
@@ -115,4 +115,4 @@ async def _shutdown_database() -> None:
         _global_session_maker = None
 
 
-__all__ = ["DBBase", "Session", "alembic_config", "db_path", "init_database", "is_ready", "session"]
+__all__ = ["DBBase", "IclaSubmission", "Session", "alembic_config", "db_path", "init_database", "is_ready", "session"]

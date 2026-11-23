@@ -330,3 +330,27 @@ h6,
   color: var(--bat-amber-text);
   background: var(--bat-tint-awaiting);
 }
+
+/* The ICLA form: one column, at the prose measure (design book, section 13). */
+.sr-measure {
+  max-width: 42rem;
+}
+
+.sr-form fieldset {
+  margin-block-start: var(--bat-space-6);
+}
+
+.sr-form legend,
+.sr-sent h2 {
+  font-size: var(--bat-text-section);
+}
+
+.sr-hint {
+  color: var(--bat-muted);
+  font-size: var(--bat-text-ui);
+}
+
+.sr-required::after {
+  content: ' *';
+  color: var(--bat-missing);
+}

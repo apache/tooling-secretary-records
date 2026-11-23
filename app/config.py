@@ -115,6 +115,20 @@ class RolesConfig(pydantic.BaseModel):
     """uids of the members appointed to help the Secretary."""
 
 
+class IclaConfig(pydantic.BaseModel):
+    """The ICLA submission form (REQUIREMENTS.md, F-101)."""
+
+    deliver_to: str = "secretary@apache.org"
+    """Where a submission is mailed, as an emailed ICLA arrives today, beside the record kept of it."""
+
+    projects_url: str | None = None
+    """The Roster's `/api/roster/projects`, the projects a submitter may name (F-102); None offers a text
+    field alone."""
+
+    submissions_per_hour: int = 5
+    """From one address: the form is open to anybody, and each submission is mail to the Secretary."""
+
+
 class AppConfig(pydantic.BaseModel):
     base: BaseConfig = BaseConfig()
     db: DBConfig = DBConfig()
@@ -126,6 +140,7 @@ class AppConfig(pydantic.BaseModel):
     every instance that had not been told otherwise - a fresh checkout, the end-to-end harness,
     a preview - addressed real mail to real people. Here the mail goes to people who sent the
     Foundation their personal data, which is a worse place to make that mistake."""
+    icla: IclaConfig = IclaConfig()
     roles: RolesConfig = RolesConfig()
     logging: LoggingConfig = LoggingConfig()
 
