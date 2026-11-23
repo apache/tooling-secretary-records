@@ -8,11 +8,13 @@
 # worktree-done.sh removes a checkout's own when its work is over; container-gc.sh finds
 # what was left by checkouts that are gone.
 #
-# What a checkout makes for itself carries its path (PATH_LABEL). devkit.checkout, which
+# What a checkout makes for itself carries its path (PATH_LABEL). <service>.checkout, which
 # container.sh also sets, names the checkout for a person reading `podman ps`; this one is
-# for the scripts that remove things.
+# for the scripts that remove things. It is scoped to the service (DEVKIT_SERVICE, from
+# checkout-id.sh): a label every service shared would let one service's cleanup remove what another's
+# checkouts made, wherever their paths were not on this machine at the moment.
 
-PATH_LABEL=devkit.checkout-path
+PATH_LABEL=$DEVKIT_SERVICE.checkout-path
 # In this order wherever all three are removed: a network or volume a container is still
 # attached to cannot go. Read by the sourcing scripts.
 # shellcheck disable=SC2034

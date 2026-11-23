@@ -23,14 +23,16 @@
 # Not scripts/run-dev.sh, which is for running on the host: it serves config.yaml's localhost:4500
 # over TLS behind caddy, and from inside a container a server bound to localhost is reachable by
 # nothing a published port forwards to. A state directory of its own, so that it never resets
-# under an e2e run in the same checkout, nor that run under it.
+# under an e2e run in the same checkout, nor that run under it. The config sits beside that
+# directory rather than in it, because e2e/serve.py empties the state directory as it starts, and
+# the state directory keeps the state-e2e name that serve.py will agree to empty.
 set -eu
 
 cd "$(dirname "$0")/.."
 (cd assets && yarn build)
 
 mkdir -p state-preview
-sed -e 's#state-e2e#state-preview#g' \
+sed -e 's#state-e2e#state-preview/state-e2e#g' \
     -e 's#^\(  host:\).*#\1 0.0.0.0#' \
     -e 's#^\(  port:\).*#\1 8080#' \
     e2e/e2e-config.yaml > state-preview/config.yaml

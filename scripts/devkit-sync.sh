@@ -306,12 +306,15 @@ sync() {
             echo "changed: $_dst"
         fi
         mkdir -p "$(dirname -- "$repo_root/$_dst")"
+        # removed first: cp over a file that exists keeps its mode, and the executable bit is part of the copy
+        rm -f "$repo_root/$_dst"
         cp "$(source_file "$_src" "$_dst")" "$repo_root/$_dst"
     done < "$work/manifest"
     while read -r _src _dst; do
         skipped "$_dst" && continue
         overridden "$_dst" "$work/overrides" && continue
-        grep -q -x -F -- "$_src $_dst" "$work/manifest" && continue
+        # still a destination of the kit, whatever it is copied from now
+        awk -v dst="$_dst" '$2 == dst { found = 1 } END { exit !found }' "$work/manifest" && continue
         if [ -f "$repo_root/$_dst" ]; then
             rm -f "$repo_root/$_dst"
             _removed=$((_removed + 1))

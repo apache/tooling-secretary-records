@@ -294,7 +294,7 @@ fi
 
 set -- "$runtime" run \
     --name "$CONTAINER_NAME" \
-    --label "devkit.checkout=$CHECKOUT_LABEL" \
+    --label "$DEVKIT_SERVICE.checkout=$CHECKOUT_LABEL" \
     --label "$PATH_LABEL=$repo_root" \
     "$@"
 
