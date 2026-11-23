@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 """The quality ratchet: measure what is hard to maintain, and let it only get better.
 
 The codebase already exceeds every threshold worth setting, so setting them outright
@@ -340,7 +341,7 @@ def _nothing_compared(result: CheckResult) -> str:
     """What to do about a run that compared nothing, which is not a pass and may not read as one.
 
     A checkout with no base readings answered "Every meter that was checked is at or better than
-    the base" - true, and true of nothing - and #814 was pushed on it and failed in CI.
+    the base" - true, and true of nothing.
 
     Which of the two reasons it was decides the remedy: a meter with no base wants
     `quality-base`, and one whose report is missing wants the suite that produces it. Naming the
@@ -388,7 +389,7 @@ def _print_check(result: CheckResult) -> None:
         print(_nothing_compared(result))
     elif result["unchecked"]:
         # The note above goes to stderr and is read past; this line is the answer taken away,
-        # and "every meter" over seven of nine is how #785 read green locally and failed in CI.
+        # and "every meter" over seven of nine reads green locally and fails in CI.
         # Each meter says why it was not read: a missing report is one CI supplies by running
         # the suite, while a missing base reading is one CI may have skipped as well.
         print("\nEvery meter that was checked is at or better than the base.")
@@ -472,15 +473,13 @@ def _measure_worktree(sha: str, names: list[str]) -> dict[str, dict[str, float]]
     repository at once and a branch taken here is one taken from somebody.
     """
 
-    with tempfile.TemporaryDirectory(prefix="secretary-records-quality-base-") as scratch:
+    with tempfile.TemporaryDirectory(prefix="devkit-quality-base-") as scratch:
         checkout = pathlib.Path(scratch) / "tree"
         _git("worktree", "add", "--detach", "--quiet", str(checkout), sha)
         try:
             # eslint.config.js imports the packages it composes, and a fresh worktree has
             # none of them. Linking this checkout's is what makes the comparison one
             # toolchain reading two trees, rather than two installs that may differ.
-            # A commit from before there was a frontend has no assets/ to link into.
-            (checkout / "assets").mkdir(exist_ok=True)
             (checkout / "assets" / "node_modules").symlink_to(quality_meters.NODE_BIN.parent, target_is_directory=True)
             quality_meters.TREE = checkout
             readings, _skipped = collect(names, require_reports=False)

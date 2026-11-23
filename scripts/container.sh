@@ -1,10 +1,11 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Run a command against the working tree inside the project's dev container.
 #
 # Everything in this repository builds and tests inside a container (see
 # AGENTS.md); this is the entry point for doing that from a plain shell, without
 # the VS Code devcontainer. The image is the repository Dockerfile, and the
-# working tree is bind-mounted read-write at /run/secretary-records, so edits are live.
+# working tree is bind-mounted read-write at /run/<service> (devkit.conf), so edits are live.
 #
 # The virtualenv and node_modules live in named volumes rather than the bind
 # mount: they hold platform-specific binaries built for the container's musl
@@ -17,41 +18,54 @@
 # Usage:
 #   scripts/container.sh make test
 #   scripts/container.sh sh -c 'uv run pytest tests/api -q'
-#   SR_PYTHON=3.14 scripts/container.sh make test
+#   DEVKIT_PYTHON=3.14 scripts/container.sh make test
+#
+# A run of the whole suite - `make test`, `test-python`, `verify`, `verify-fresh` or
+# `test-coverage`, or `uv run scripts/ci/verify.py` - is sized to the machine and takes one of its
+# gate slots, whether it comes through a container-* target or straight here: see
+# scripts/container-size.sh. A command wrapped in `sh -c` is not recognised as one.
 #
 # Environment:
-#   SR_PYTHON        run against this Python version instead of the image
+#   DEVKIT_PYTHON        run against this Python version instead of the image
 #                     default, using a throwaway venv (this is how the CI matrix
 #                     versions are reproduced locally)
-#   SR_ISOLATED      set to `1` where the whole environment is thrown away after use (a
-#                     disposable VM): the command runs in this checkout directly, with no
-#                     container. SR_TIMEOUT applies; SR_PYTHON, SR_DETACH and
-#                     SR_PORT are refused, since each needs a container of its own
-#   SR_RUNTIME       container runtime to use (default: podman, else docker)
-#   SR_VENV_VOLUME   name the virtualenv volume outright, rather than taking the
+#   DEVKIT_ISOLATED      set to `1` where the whole environment is disposable (an isx
+#                     box): the command runs in this checkout directly, with no
+#                     container. DEVKIT_TIMEOUT applies; DEVKIT_PYTHON, DEVKIT_DETACH and
+#                     DEVKIT_PORT are refused, since each needs a container of its own
+#   DEVKIT_RUNTIME       container runtime to use (default: podman, else docker)
+#   DEVKIT_VENV_VOLUME   name the virtualenv volume outright, rather than taking the
 #                     one derived from this checkout
-#   SR_NODE_VOLUME   likewise for the node_modules volume
-#   SR_NODE_INSTALL  set to `skip` to run without checking that node_modules
+#   DEVKIT_NODE_VOLUME   likewise for the node_modules volume
+#   DEVKIT_NODE_INSTALL  set to `skip` to run without checking that node_modules
 #                     matches the lockfile. The way back in when package.json and
 #                     yarn.lock disagree, since the check refuses that and this
 #                     runs before every command - see ensure-node-modules.sh
-#   SR_TIMEOUT       seconds before the command inside the container is killed
-#                     (default 3600). `0` removes the deadline
-#   SR_MEMORY        how much memory the container may have (default 6g). `0`
-#                     removes the cap
-#   SR_CONTAINER_NAME  name the container outright, rather than taking the one
+#   DEVKIT_TIMEOUT       seconds before the command inside the container is killed
+#                     (default 3600; up to 7200 for a sized run given fewer
+#                     workers than its command can use). `0` removes the deadline
+#   DEVKIT_MEMORY        how much memory the container may have (default 6g, or
+#                     what the sizing chooses). `0` removes the cap
+#   DEVKIT_SIZE_WORKERS  the most pytest workers the command can use, set by the
+#                     Makefile's whole-suite targets: the workers and the memory
+#                     cap are then sized to the machine, and the run holds one of
+#                     its gate slots, which every worktree shares, waiting for
+#                     one where all are held. `0` or unset leaves the fixed
+#                     settings, as does CI. See scripts/container-size.sh
+#   PYTEST_WORKERS    given outright, the worker count a sized run uses
+#   DEVKIT_CONTAINER_NAME  name the container outright, rather than taking the one
 #                     derived from this checkout and this process
-#   SR_DETACH        start the container and return, leaving it running. Implies
+#   DEVKIT_DETACH        start the container and return, leaving it running. Implies
 #                     no deadline - the point of it is to outlive this shell - and
 #                     prints the name to reach it by
-#   SR_PORT          a port to publish: `8080:8080`
+#   DEVKIT_PORT          a port to publish: `8080:8080`
 #
 # A container you mean to keep - a server to browse, a shell to work in - wants the
 # deadline off and a name of its own. `make container-keep` is that, spelled once
 # so that neither a person nor an agent has to assemble it; `make container-shell`
 # likewise for a shell. Underneath, for what they do not cover:
 #
-#   SR_TIMEOUT=0 SR_CONTAINER_NAME=secretary-records-preview \
+#   DEVKIT_TIMEOUT=0 DEVKIT_CONTAINER_NAME=<service>-preview \
 #       scripts/container.sh sh -c 'uv run python -m app'
 #
 # The name, the cap and the deadline are here because none of them were, and a
@@ -69,17 +83,19 @@ repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd)
 . "$script_dir/checkout-resources.sh"
 # shellcheck source=scripts/seed-volumes.sh
 . "$script_dir/seed-volumes.sh"
+# shellcheck source=scripts/container-size.sh
+. "$script_dir/container-size.sh"
 
 suffix=$(checkout_suffix "$repo_root")
 git_dir=$(worktree_git_dir "$repo_root")
 
-IMAGE_NAME="${SR_IMAGE:-secretary-records-dev}"
-VENV_VOLUME="${SR_VENV_VOLUME:-secretary-records-venv$suffix}"
-NODE_VOLUME="${SR_NODE_VOLUME:-secretary-records-node$suffix}"
+IMAGE_NAME="${DEVKIT_IMAGE:-$DEVKIT_SERVICE-dev}"
+VENV_VOLUME="${DEVKIT_VENV_VOLUME:-$DEVKIT_SERVICE-venv$suffix}"
+NODE_VOLUME="${DEVKIT_NODE_VOLUME:-$DEVKIT_SERVICE-node$suffix}"
 
 # The pid, because two commands can be in flight in one checkout - a suite and the
 # e2e typecheck, say - and a name they shared would be a name one of them stole.
-CONTAINER_NAME="${SR_CONTAINER_NAME:-secretary-records-run$suffix-$$}"
+CONTAINER_NAME="${DEVKIT_CONTAINER_NAME:-$DEVKIT_SERVICE-run$suffix-$$}"
 # The label does not have to be unique, and is what a sweep can select on.
 CHECKOUT_LABEL="${suffix#-}"
 CHECKOUT_LABEL="${CHECKOUT_LABEL:-primary}"
@@ -90,19 +106,19 @@ off() {
     case "$1" in 0 | '') return 0 ;; *) return 1 ;; esac
 }
 
-TIMEOUT="${SR_TIMEOUT:-3600}"
-MEMORY="${SR_MEMORY:-6g}"
+TIMEOUT="${DEVKIT_TIMEOUT:-3600}"
+MEMORY="${DEVKIT_MEMORY:-6g}"
 off "$TIMEOUT" && TIMEOUT=''
 off "$MEMORY" && MEMORY=''
 
-# Anything but `1` and `0` is refused rather than read as true. `SR_DETACH=false` taken
+# Anything but `1` and `0` is refused rather than read as true. `DEVKIT_DETACH=false` taken
 # for "detached" would start a container, print that it had started, and return 0 - with
 # the command's output and its status never reaching the caller.
-DETACH="${SR_DETACH:-}"
+DETACH="${DEVKIT_DETACH:-}"
 case "$DETACH" in
     1) ;;
     0 | '') DETACH='' ;;
-    *) echo "SR_DETACH: expected 1 or 0, got '$DETACH'" >&2; exit 2 ;;
+    *) echo "DEVKIT_DETACH: expected 1 or 0, got '$DETACH'" >&2; exit 2 ;;
 esac
 
 # A deadline on a container whose whole purpose is to outlive this shell would be a
@@ -116,13 +132,13 @@ if [ "$#" -eq 0 ]; then
     exit 2
 fi
 
-# Already inside a disposable environment (SR_ISOLATED=1, see AGENTS.md): there is nothing
+# Already inside a disposable environment (DEVKIT_ISOLATED=1, see AGENTS.md): there is nothing
 # left to isolate from, and a container in it would only rebuild the image. The command runs
 # where it stands. What is for a container of its own has no meaning here and is refused,
 # where running it as something else would answer a different question.
-if [ "${SR_ISOLATED:-}" = 1 ]; then
-    if [ -n "${SR_PYTHON:-}" ] || [ -n "$DETACH" ] || [ -n "${SR_PORT:-}" ]; then
-        echo "SR_PYTHON, SR_DETACH and SR_PORT need a container of their own: not with SR_ISOLATED=1" >&2
+if [ "${DEVKIT_ISOLATED:-}" = 1 ]; then
+    if [ -n "${DEVKIT_PYTHON:-}" ] || [ -n "$DETACH" ] || [ -n "${DEVKIT_PORT:-}" ]; then
+        echo "DEVKIT_PYTHON, DEVKIT_DETACH and DEVKIT_PORT need a container of their own: not with DEVKIT_ISOLATED=1" >&2
         exit 2
     fi
     PATH="$HOME/.local/bin:$PATH"
@@ -147,8 +163,8 @@ if [ "${SR_ISOLATED:-}" = 1 ]; then
     exit "$status"
 fi
 
-if [ -n "${SR_RUNTIME:-}" ]; then
-    runtime="$SR_RUNTIME"
+if [ -n "${DEVKIT_RUNTIME:-}" ]; then
+    runtime="$DEVKIT_RUNTIME"
 elif command -v podman >/dev/null 2>&1; then
     runtime=podman
 elif command -v docker >/dev/null 2>&1; then
@@ -166,8 +182,23 @@ if ! "$runtime" image exists "$IMAGE_NAME" 2>/dev/null &&
     "$runtime" build -t "$IMAGE_NAME" "$repo_root"
 fi
 
-seed_volume "$VENV_VOLUME" secretary-records-venv
-seed_volume "$NODE_VOLUME" secretary-records-node
+seed_volume "$VENV_VOLUME" "$DEVKIT_SERVICE-venv"
+seed_volume "$NODE_VOLUME" "$DEVKIT_SERVICE-node"
+
+# A run of the whole suite is sized to the machine and takes one of its gate slots, on descriptor 8,
+# which the `podman run` below inherits - and, under podman, conmon and the network helper with it:
+# the slot is held until the container ends, and let go by the kernel however it ends. Last before
+# the run, so that an image build or a volume copy holds no slot.
+#
+# The command itself says whether it is such a run, where no target said so (gate_suite_workers);
+# and a PYTEST_WORKERS on its make line beats the environment's in there, so it is the count here.
+[ -n "${DEVKIT_SIZE_WORKERS+set}" ] || DEVKIT_SIZE_WORKERS=$(gate_suite_workers "$@")
+make_workers=$(gate_make_workers "$@")
+[ -z "$make_workers" ] || PYTEST_WORKERS=$make_workers
+WORKERS=${PYTEST_WORKERS:-}
+if [ -z "$DETACH" ] && gate_wanted; then
+    gate_size
+fi
 
 # The inner script runs inside the container, so its variables must reach it
 # unexpanded - the single quotes around it are deliberate.
@@ -181,19 +212,19 @@ inner='
         # uv re-reads its lockfile on every `uv run`; yarn installs when asked and
         # not otherwise, so this asks. See scripts/ensure-node-modules.sh for what
         # it compares and why an existence check was not enough.
-        sh /run/secretary-records/scripts/ensure-node-modules.sh /run/secretary-records/assets
+        sh scripts/ensure-node-modules.sh assets
 
-        if [ -n "${SR_PYTHON:-}" ]; then
+        if [ -n "${DEVKIT_PYTHON:-}" ]; then
             # a venv of its own, so the pinned one in the volume is left alone
-            UV_PROJECT_ENVIRONMENT="/tmp/venv-${SR_PYTHON}"
+            UV_PROJECT_ENVIRONMENT="/tmp/venv-${DEVKIT_PYTHON}"
             # UV_PYTHON as well as --python: the later `uv run` must find the venv built here
-            UV_PYTHON="$SR_PYTHON"
+            UV_PYTHON="$DEVKIT_PYTHON"
             export UV_PROJECT_ENVIRONMENT UV_PYTHON
-            uv python install "$SR_PYTHON" >&2
-            uv sync --frozen --python "$SR_PYTHON" >&2
+            uv python install "$DEVKIT_PYTHON" >&2
+            uv sync --frozen --python "$DEVKIT_PYTHON" >&2
         fi
 
-        if [ -n "${SR_TIMEOUT:-}" ]; then
+        if [ -n "${DEVKIT_TIMEOUT:-}" ]; then
             # SIGTERM first so a command that can stop tidily does, SIGKILL half a
             # minute later for one that will not.
             #
@@ -210,7 +241,7 @@ inner='
             # deadline killed a thirty second sleep at 6s (exit 143); as the last
             # command of the script, a three second deadline let a twenty second sleep
             # run to completion and exit 0.
-            timeout -s TERM -k 30 "$SR_TIMEOUT" "$@"
+            timeout -s TERM -k 30 "$DEVKIT_TIMEOUT" "$@"
             exit $?
         else
             exec "$@"
@@ -225,15 +256,21 @@ if [ -n "$git_dir" ]; then
     # .git file points at, and what `make check` needs to see a repository
     set -- -v "$git_dir:$git_dir:z" "$@"
 fi
-set -- -v "$repo_root:/run/secretary-records:z" \
-    -v "$VENV_VOLUME:/run/secretary-records/.venv" \
-    -v "$NODE_VOLUME:/run/secretary-records/assets/node_modules" \
-    -w /run/secretary-records \
+set -- -v "$repo_root:$DEVKIT_RUN_DIR:z" \
+    -v "$VENV_VOLUME:$DEVKIT_RUN_DIR/.venv" \
+    -v "$NODE_VOLUME:$DEVKIT_RUN_DIR/assets/node_modules" \
+    -w "$DEVKIT_RUN_DIR" \
     -e "HOME=/root" \
-    -e "SR_PYTHON=${SR_PYTHON:-}" \
-    -e "SR_TIMEOUT=$TIMEOUT" \
-    -e "SR_NODE_INSTALL=${SR_NODE_INSTALL:-}" \
+    -e "DEVKIT_PYTHON=${DEVKIT_PYTHON:-}" \
+    -e "DEVKIT_TIMEOUT=$TIMEOUT" \
+    -e "DEVKIT_NODE_INSTALL=${DEVKIT_NODE_INSTALL:-}" \
     "$@"
+
+# Only when there is a count: an empty one would reach make as a value, and `?=` would keep it,
+# running the suite serially.
+if [ -n "$WORKERS" ]; then
+    set -- -e "PYTEST_WORKERS=$WORKERS" "$@"
+fi
 
 if [ -n "$MEMORY" ]; then
     # --memory-swap at the same figure leaves the container no swap to escape into:
@@ -243,8 +280,8 @@ if [ -n "$MEMORY" ]; then
     set -- --memory "$MEMORY" --memory-swap "$MEMORY" "$@"
 fi
 
-if [ -n "${SR_PORT:-}" ]; then
-    set -- -p "$SR_PORT" "$@"
+if [ -n "${DEVKIT_PORT:-}" ]; then
+    set -- -p "$DEVKIT_PORT" "$@"
 fi
 
 if [ -n "$DETACH" ]; then
@@ -257,7 +294,7 @@ fi
 
 set -- "$runtime" run \
     --name "$CONTAINER_NAME" \
-    --label "secretary-records.checkout=$CHECKOUT_LABEL" \
+    --label "$DEVKIT_SERVICE.checkout=$CHECKOUT_LABEL" \
     --label "$PATH_LABEL=$repo_root" \
     "$@"
 
@@ -267,7 +304,7 @@ set -- "$runtime" run \
 # destroying what it did not create. `--type container`, because a bare `inspect` matches
 # images and volumes too and would refuse over an image that shares the name. The derived
 # name holds this process's pid and cannot collide, so this asks only about a given one.
-if [ -n "${SR_CONTAINER_NAME:-}" ] &&
+if [ -n "${DEVKIT_CONTAINER_NAME:-}" ] &&
     "$runtime" inspect --type container "$CONTAINER_NAME" > /dev/null 2>&1; then
     echo "a container named $CONTAINER_NAME is already there" >&2
     echo "  $runtime rm -f $CONTAINER_NAME   removes it" >&2
@@ -276,7 +313,7 @@ fi
 
 if [ -n "$DETACH" ]; then
     "$@" > /dev/null
-    echo "started $CONTAINER_NAME${SR_PORT:+ on $SR_PORT}" >&2
+    echo "started $CONTAINER_NAME${DEVKIT_PORT:+ on $DEVKIT_PORT}" >&2
     echo "  logs:  $runtime logs -f $CONTAINER_NAME" >&2
     echo "  shell: $runtime exec -it $CONTAINER_NAME sh" >&2
     echo "  stop:  $runtime rm -f $CONTAINER_NAME" >&2

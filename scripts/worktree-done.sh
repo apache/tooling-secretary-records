@@ -1,7 +1,8 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Finish with a linked worktree: remove it, and everything the container scripts made for it.
 #
-#   scripts/worktree-done.sh ../tooling-secretary-records-<topic>
+#   scripts/worktree-done.sh ../<repository>-<topic>
 #
 # Removes the worktree, then the containers, network and volumes made for it (its virtualenv,
 # node_modules and Playwright's node_modules). The local branch goes too where everything on
@@ -14,7 +15,7 @@
 # HEAD holding commits nothing else does. Git removes the worktree before anything else
 # goes, and itself refuses one that is not clean.
 #
-# Environment: SR_RUNTIME as in container.sh.
+# Environment: DEVKIT_RUNTIME as in container.sh.
 
 set -eu
 

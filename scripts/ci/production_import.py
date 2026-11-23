@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 """Import every module of `app` and build the application, with only what `uv sync --no-default-groups` installs, and
 check that every package the code imports anywhere, a function body included, is installed.
 

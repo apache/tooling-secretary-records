@@ -1,4 +1,5 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Which checkout made a volume, container or network, and so whether it may be removed.
 #
 # Sourced, not run, like checkout-id.sh. The container scripts create volumes, containers and
@@ -7,21 +8,23 @@
 # worktree-done.sh removes a checkout's own when its work is over; container-gc.sh finds
 # what was left by checkouts that are gone.
 #
-# What a checkout makes for itself carries its path (PATH_LABEL). secretary-records.checkout, which
+# What a checkout makes for itself carries its path (PATH_LABEL). <service>.checkout, which
 # container.sh also sets, names the checkout for a person reading `podman ps`; this one is
-# for the scripts that remove things.
+# for the scripts that remove things. It is scoped to the service (DEVKIT_SERVICE, from
+# checkout-id.sh): a label every service shared would let one service's cleanup remove what another's
+# checkouts made, wherever their paths were not on this machine at the moment.
 
-PATH_LABEL=secretary-records.checkout-path
+PATH_LABEL=$DEVKIT_SERVICE.checkout-path
 # In this order wherever all three are removed: a network or volume a container is still
 # attached to cannot go. Read by the sourcing scripts.
 # shellcheck disable=SC2034
 KINDS="container network volume"
 
-# The runtime the container scripts use: SR_RUNTIME, else podman, else docker. Prints nothing
+# The runtime the container scripts use: DEVKIT_RUNTIME, else podman, else docker. Prints nothing
 # and fails where there is none.
 container_runtime() {
-    if [ -n "${SR_RUNTIME:-}" ]; then
-        printf '%s\n' "$SR_RUNTIME"
+    if [ -n "${DEVKIT_RUNTIME:-}" ]; then
+        printf '%s\n' "$DEVKIT_RUNTIME"
     elif command -v podman >/dev/null 2>&1; then
         echo podman
     elif command -v docker >/dev/null 2>&1; then
@@ -32,7 +35,7 @@ container_runtime() {
 }
 
 # Create a volume, labelled with this checkout, where it does not exist yet - but only when
-# its name is the one this checkout derives ($2). A name given outright (SR_VENV_VOLUME and
+# its name is the one this checkout derives ($2). A name given outright (DEVKIT_VENV_VOLUME and
 # the like) can be shared, or be the primary's: labelled with whichever checkout made it
 # first, it would be removed along with that checkout. $runtime, $repo_root and $suffix belong
 # to the sourcing script.
@@ -88,11 +91,11 @@ listing() {
 # The suffix a name was derived from, or nothing for a name that is not one of the scripts'.
 suffix_of() {
     printf '%s\n' "$1" | sed -n -E \
-        -e 's/^secretary-records-(venv|node|e2e-node)(-.+)$/\2/p' \
-        -e 's/^secretary-records-run(-.+)-[0-9]+$/\1/p' \
-        -e 's/^secretary-records-keep(-.+)$/\1/p' \
-        -e 's/^secretary-records-e2e-server(-.+)$/\1/p' \
-        -e 's/^secretary-records-e2e-net(-.+)$/\1/p'
+        -e "s/^$DEVKIT_SERVICE-(venv|node|e2e-node)(-.+)\$/\\2/p" \
+        -e "s/^$DEVKIT_SERVICE-run(-.+)-[0-9]+\$/\\1/p" \
+        -e "s/^$DEVKIT_SERVICE-keep(-.+)\$/\\1/p" \
+        -e "s/^$DEVKIT_SERVICE-e2e-server(-.+)\$/\\1/p" \
+        -e "s/^$DEVKIT_SERVICE-e2e-net(-.+)\$/\\1/p"
 }
 
 # The suffix of every checkout of this repository still on disk, one a line.

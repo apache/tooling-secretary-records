@@ -1,4 +1,5 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Hold the rules AGENTS.md states as absolutes, at the moment one is about to be broken.
 #
 # Claude Code runs this before every Bash tool call, handing it the call as JSON on
@@ -16,22 +17,26 @@
 #   - a container wrapper piped into head or tail reports the pipe's exit status, so a
 #     run that failed reads as one that passed
 #
+# Known gaps: text piped or redirected into a shell - `echo "uv run pytest" | sh`, or a
+# heredoc to sh - is not read as a command, and neither is what `find -exec` or `rg --pre`
+# runs, so either can run the toolchain on the host.
+#
 # A rule the harness holds does not have to be remembered. That is the point of putting
 # these here rather than in another paragraph of AGENTS.md: the paragraph is read once
 # per session and skipped when the context is long, and this is not read at all.
 #
 # It stands down inside the dev container, where running uv and yarn is the whole idea.
-# /run/secretary-records is where both the Dockerfile and .devcontainer put the working tree, so its
-# presence is the same question as "am I already inside". SR_GUARD_FORCE=1 overrides
+# /run/<service> is where both the Dockerfile and .devcontainer put the working tree, so its
+# presence is the same question as "am I already inside". DEVKIT_GUARD_FORCE=1 overrides
 # that, which is how guard-bash.test.sh exercises the guard from inside the container.
 #
-# A disposable environment that is not that container - a throwaway virtual machine, say -
-# says so with SR_ISOLATED=1, and there only the toolchain rules stand down: a box with a
-# throwaway filesystem has nothing to protect from `uv`, and everything else here (staging,
-# the stash, --no-verify, the byline on a posted body) is about the repository and its
+# A disposable environment that is not that container - an isx box, say - says so with
+# DEVKIT_ISOLATED=1, and there only the toolchain rules stand down: a box with a throwaway
+# filesystem has nothing to protect from `uv`, and everything else here (staging, the
+# stash, --no-verify, the byline on a posted body) is about the repository and its
 # colleagues, which the box does not change. The variable is read from the environment
-# this hook was started in, which the box sets, and never from the command it is judging:
-# `SR_ISOLATED=1 uv run x` on a host is `uv` on a host.
+# this hook was started in, which the box sets (an isx template's `env`), and never from the
+# command it is judging: `DEVKIT_ISOLATED=1 uv run x` on a host is `uv` on a host.
 #
 # It holds a rule against a lapse, not against somebody set on breaking it: it reads the shell
 # as far as the rules need and no further. Known to walk past it, and left so:
@@ -40,27 +45,37 @@
 #   - a runner it does not list, or one of its options it does not know: `stdbuf`, `ionice`,
 #     `env -S`, `sudo -u`
 #   - a value exported earlier on the line or in the session: `export FILTER=...; make e2e-quick`
-#   - a command piped or redirected into a shell as text: `echo 'uv run pytest' | sh`, `sh <<EOF`
-#   - what `find -exec` or `rg --pre` runs: `find . -exec uv run pytest \;`, `rg --pre ./x pattern`
 # Reading make's arguments word by word costs time: a five-part line with a make wrapper in it
 # went from 34ms to 47ms.
 
 set -eu
 
 isolated() {
-    [ "${SR_ISOLATED:-}" = 1 ]
+    [ "${DEVKIT_ISOLATED:-}" = 1 ]
 }
 
-if [ "${SR_GUARD_FORCE:-}" != 1 ] && [ -d /run/secretary-records ]; then
+# The service is read from devkit.conf and never sourced: this runs before anything else has been
+# checked, and a file of the repository is not to be run by the code that guards it. But that file is
+# the repository's to write, so it must not be able to switch the guard off: the guard stands down only
+# where it lives at /run/<service>, which is where the container mounts the working tree, and only for a
+# name that is one (see checkout-id.sh). A name like `.`, `..`, `user` or a missing file leaves it on,
+# which is the safe answer to "am I already inside".
+_service=$(sed -n 's/^DEVKIT_SERVICE=//p' "$(dirname -- "$0")/../../devkit.conf" 2>/dev/null | head -n 1)
+case $_service in
+    '' | [!a-z0-9]* | *[!a-z0-9_-]*) _service='' ;;
+    *) : ;;
+esac
+_here=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." 2>/dev/null && pwd -P)
+if [ "${DEVKIT_GUARD_FORCE:-}" != 1 ] && [ -n "$_service" ] && [ "$_here" = "/run/$_service" ]; then
     exit 0
 fi
 
 payload=$(cat)
 
 # The body of a heredoc is data. The shell will not execute it - a quoted `<<'MD'` is not
-# even expanded - so nothing in there is a command, and reading it as one refused an issue
-# body that quoted `uv run ...` in a fenced example. The fix each time was to write the
-# file with a different tool, which is the one habit a guard cannot afford to teach (#701).
+# even expanded - so nothing in there is a command. Reading it as one refuses an issue body
+# that quotes `uv run ...` in a fenced example, and teaches the one habit a guard cannot
+# afford to teach: writing the file with a different tool.
 #
 # The line that opens the heredoc is kept, because the command on it is real, and so is
 # everything after the terminator: `uv run ...` before or after a heredoc is still uv on
@@ -612,8 +627,8 @@ ATTRIBUTION="^Posted by .+ on behalf of @[A-Za-z0-9][A-Za-z0-9-]*"
 #
 # Counted as the parts are read rather than by looking for the command in the text. Text is not
 # a command: a comment explaining how to reply, quoting `gh issue comment` on a line of its own,
-# was counted as a second post and the whole - correctly signed - call refused. It is the same
-# mistake as reading a heredoc body as commands (#701), and `check_line` walks the parts in this
+# is not a second post, and refusing the whole - correctly signed - call for it would be wrong. It
+# is the same mistake as reading a heredoc body as commands, and `check_line` walks the parts in this
 # shell, so counting where they are dispatched costs nothing and cannot see prose.
 _posts_seen=0
 
@@ -670,9 +685,8 @@ signed_off() {
 # file its own words happened to name.
 #
 # What a path arrives wrapped in is not part of it: `--body-file "/tmp/c.md"` keeps the shell's
-# quotes, and was tested with them still attached - so a file that was there and signed read as
-# a file that was not there at all. Every occurrence rather than the last one on a line, which is
-# what the sed this replaced quietly did.
+# quotes, and a path tested with them still attached reads a file that is there and signed as a
+# file that is not there at all. Every occurrence is taken, not the last one on a line.
 #
 # Matched rather than split into fields, because a quoted path may have a space in it and fields
 # end at one: `--body-file "/tmp/some dir/body.md"` was read as `"/tmp/some` and reported missing.
@@ -719,10 +733,9 @@ check_gh() {
         esac
     done
     case "${1:-} ${2:-}" in
-        # `gh api` reaches the same comments, and is the only way one is edited. It is not here:
-        # writing that branch cost three of the five defects this rule was reviewed for, in a
-        # guard whose whole difficulty is telling a command from text that looks like one. The
-        # gap is real and is filed rather than left implied - see #809.
+        # `gh api` reaches the same comments, and is the only way one is edited. It is not covered:
+        # that branch is hard to write without confusing a command with text that looks like one.
+        # The gap is known.
         'issue comment' | 'issue create' | 'issue edit' | 'pr comment' | 'pr create' | 'pr edit' | 'pr review') : ;;
         *) return 0 ;;
     esac
@@ -750,258 +763,6 @@ check_gh() {
 
 AGENTS.md, \"Writing on an issue or a pull request\"."
 }
-
-# The container wrappers also read SR_ISOLATED, and the first word of
-# `SR_ISOLATED=1 scripts/container.sh make test` is the wrapper the container rule asks for.
-# Left alone, that is the toolchain on a host that said nothing of the kind. So where the
-# environment has not set it, a command may not.
-#
-# The ways of setting it are too many to list - `env`, `nice`, `sudo -u`, `bash -lc`, `eval`,
-# a `make` argument, a quoted name - and a list that omits one is a list that is walked past.
-# So the question is turned round: a part that names `SR_ISOLATED` at all is refused, unless
-# what it runs is something that only reads text, where the word is a message or a pattern
-# (`git commit -m`, `gh ... --body`, `grep`). The bare name and not `SR_ISOLATED=`, because
-# `SR_ISOLATED+=1`, `read SR_ISOLATED` and `printf -v SR_ISOLATED` set it without that text.
-# Quotes and backslashes are taken out first, so `"SR_ISOLATED=1"` and `SR_ISOLATED\=1` are
-# the same word as the bare one; `env -u SR_ISOLATED`, which asks for a container, is let by.
-# `git` and `gh` can run a shell - an alias, `-c core.pager=...`, `rebase -x`, `bisect run` -
-# so they count as readers for the subcommands that only read or write text, and for no
-# other (see `text_subcommand`). What this cannot see: a script written to a file
-# and run afterwards, a word that a command substitution prints (`env $(echo SR_ISOLATED=1)`),
-# which the guard reads as one opaque word everywhere - and reading inside one would refuse
-# every commit message that mentions the variable - and a name assembled from pieces.
-#
-# Whether a `git` or `gh` part ($1, the whole part) is a subcommand that only reads or
-# writes text. The options before the subcommand are read for what they are: `-C` takes a
-# path, `-c` and `--config-env` run configuration, which can name a shell. `gh`'s `alias`,
-# `extension` and `config` are not in the list. `git grep` reads text unless its options hand
-# something to a shell (`grep_runs_a_shell`).
-text_subcommand() {
-    set -f
-    # shellcheck disable=SC2086  # splitting the part into its words is the point
-    set -- $1
-    set +f
-    _tool=${1##*/}
-    shift
-    while [ "$#" -gt 0 ]; do
-        case $1 in
-            -C) shift ;;
-            -c | -c* | --config-env* | --exec-path* | --git-dir* | --work-tree*) return 1 ;;
-            -*) : ;;
-            *) break ;;
-        esac
-        shift
-    done
-    case $_tool:${1:-} in
-        git:grep)
-            shift
-            ! grep_runs_a_shell "$@"
-            ;;
-        git:log | git:show | git:diff | git:status | git:commit | git:branch | \
-            git:rev-parse | git:ls-files | git:blame | git:tag | git:notes | git:describe | \
-            git:shortlog | git:cat-file | git:merge-base | git:rev-list | git:add) return 0 ;;
-        gh:pr | gh:issue | gh:run | gh:api | gh:release | gh:search) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-# Whether `git grep`'s options ($@, the words after `grep`) hand something to a shell:
-# `-O`/`--open-files-in-pager`, in any abbreviation git accepts (`--op`) or cluster (`-nO...`),
-# and a word the shell expands (`$opt`), which could be either. git grep takes its options
-# first and refuses one after a pattern or a path, so the scan stops at the first word that is
-# not an option, and at `--`. A value an option takes is not an option: `-e -SR_ISOLATED` is
-# a pattern. A long option this does not know may take the next word as its value, so that word
-# does not end the scan.
-grep_runs_a_shell() {
-    _value=no
-    for _word in "$@"; do
-        case $_value in
-            yes)
-                _value=no
-                continue
-                ;;
-            maybe) _maybe=yes ;;
-            *) _maybe=no ;;
-        esac
-        _value=no
-        case $_word in
-            --) return 1 ;;
-            '$'*) return 0 ;;
-            --op*) return 0 ;;
-            --regexp | --file | --max-depth | --threads | --context | --after-context | \
-                --before-context | --max-count) _value=yes ;;
-            --*=*) : ;;
-            --*) _value=maybe ;;
-            -?*)
-                # -e -f -A -B -C -m take a value: attached, or the next word when last
-                if cluster_carries "$_word" O efABCm; then
-                    return 0
-                fi
-                _letters=${_word#-}
-                _before=${_letters%%[efABCm]*}
-                if [ "$_before" != "$_letters" ] && [ -z "${_letters#"$_before"?}" ]; then
-                    _value=yes
-                fi
-                ;;
-            *) [ "$_maybe" = yes ] || return 1 ;;
-        esac
-    done
-    return 1
-}
-
-check_isolated_assignment() {
-    if isolated; then
-        return 0
-    fi
-    # `-u NAME` only as its own words: stripped from the whole part, it ate the end of
-    # `X=-u SR_ISOLATED=1`, which is two assignments, and left `X==1`.
-    _flat=$(printf '%s' "$1" | tr -d "'\"\\\\" |
-        sed -E 's/(^|[[:space:]])-u[[:space:]]*SR_ISOLATED([[:space:]]|$)/\1\2/g')
-    case $_flat in
-        *SR_ISOLATED*) : ;;
-        *) return 0 ;;
-    esac
-    if reads_text "$_flat"; then
-        return 0
-    fi
-    refuse "SR_ISOLATED is the environment's to set, and this command sets it." \
-        "A disposable environment sets it where the agent is started (its
-template, or managed settings). Without it, use the wrappers as they are:
-  make container-check | make container-test | make container-quality
-
-AGENTS.md, \"Everything runs in a container\"."
-}
-
-# Whether a part ($1, quotes already taken out) runs something that only reads text, where a word
-# is a message or a pattern rather than an assignment.
-reads_text() {
-    _trimmed=$1
-    while :; do
-        case $_trimmed in
-            [[:space:]]* | '('* | '{'* | '!'*) _trimmed=${_trimmed#?} ;;
-            *) break ;;
-        esac
-    done
-    _head=${_trimmed%%[[:space:]]*}
-    case ${_head##*/} in
-        git | gh) text_subcommand "$_trimmed" ;;
-        # not `printf`: `printf -v SR_ISOLATED 1` assigns it, and `set -a` exports it
-        grep | rg | echo | cat | jq | head | tail | ls | wc | diff) return 0 ;;
-        *) return 1 ;;
-    esac
-}
-
-# allexport exports every variable assigned after it, and then a reader can assign SR_ISOLATED
-# without naming it the way a setter does - `echo ${SR_ISOLATED:=1}`, an arithmetic `$[...]`,
-# an array subscript - and the wrapper after it reads it from the environment. Every other way
-# of exporting it names it in a part that is not a reader, which check_isolated_assignment
-# refuses. So where the environment has not set it, allexport is refused in every spelling:
-# `set -a` or a cluster holding `a` (`set -euao pipefail`), the same flag to a shell (`bash -a`),
-# and the word `allexport` (`set -o allexport`, `SHELLOPTS=allexport`) outside a reader.
-check_allexport() {
-    if isolated; then
-        return 0
-    fi
-    case $(printf '%s' "$1" | tr -d "'\"\\\\") in
-        *allexport*)
-            if ! reads_text "$(printf '%s' "$1" | tr -d "'\"\\\\")"; then
-                refuse_allexport
-            fi
-            ;;
-        *) : ;;
-    esac
-    _words=$(unquote_values "$1")
-    set -f
-    # shellcheck disable=SC2086  # splitting the part into its words is the point
-    set -- $_words
-    set +f
-    _at_command=yes
-    while [ "$#" -gt 0 ]; do
-        _word=$1
-        shift
-        if [ "$_at_command" = yes ]; then
-            case ${_word##*/} in
-                set | sh | bash | dash | ash | zsh | ksh)
-                    if exports_all "$@"; then
-                        refuse_allexport
-                    fi
-                    return 0
-                    ;;
-                # what may stand before a command: a keyword, a prefix, and the prefix's options
-                then | do | else | elif | if | while | until | '!' | '{' | time | exec | command | \
-                    builtin | sudo | env | nohup | timeout | nice | stdbuf | *=* | -* | [0-9]*) : ;;
-                *) _at_command=no ;;
-            esac
-        fi
-    done
-}
-
-# Whether the options of `set` or of a shell ($@) turn allexport on: a short cluster holding `a`.
-# The options end at `--`, `-`, and the first word that is not one.
-exports_all() {
-    for _word in "$@"; do
-        case $_word in
-            -- | -) return 1 ;;
-            --*) : ;;
-            -*a*) return 0 ;;
-            -* | +*) : ;;
-            *) return 1 ;;
-        esac
-    done
-    return 1
-}
-
-refuse_allexport() {
-    refuse "allexport (\`set -a\`, \`set -o allexport\`, \`bash -a\`) exports whatever is assigned after it, SR_ISOLATED included, under spellings this guard cannot read as setting it." \
-        "Export what a command needs by name, or pass it on the command line:
-  FOO=1 scripts/container.sh make test
-
-AGENTS.md, \"Everything runs in a container\"."
-}
-
-# The command string a shell is handed with `-c`, from the raw part ($1, the shell's name first),
-# or nothing. `-c` may share a cluster - `bash -lc '...'`, `sh -ec '...'` - and other options may
-# stand before it, `-o pipefail` and `--rcfile file` taking a word of their own. The string is the
-# first word after the options; a word before any `-c` is a script, and then there is no string.
-command_string() {
-    _rest=$1
-    _seen_c=no
-    _skip=no
-    while :; do
-        case $_rest in
-            *[[:space:]]*) _rest=${_rest#*[[:space:]]} ;;
-            *) return 0 ;;
-        esac
-        _rest=${_rest#"${_rest%%[![:space:]]*}"}
-        _word=${_rest%%[[:space:]]*}
-        if [ "$_skip" = yes ]; then
-            _skip=no
-            continue
-        fi
-        case $_word in
-            '') return 0 ;;
-            --rcfile | --init-file) _skip=yes ;;
-            --*) : ;;
-            [-+]*)
-                case $_word in
-                    -*c*) _seen_c=yes ;;
-                    *) : ;;
-                esac
-                case $_word in
-                    *[oO]) _skip=yes ;;
-                    *) : ;;
-                esac
-                ;;
-            *)
-                if [ "$_seen_c" = yes ]; then
-                    printf '%s' "$_rest"
-                fi
-                return 0
-                ;;
-        esac
-    done
-}
-
 
 # The words of $1 as a shell reads them, one to a line: split on whitespace outside quotes, the quotes
 # gone, a backslash outside single quotes taking the next character as it is. The words this guard
@@ -1103,19 +864,22 @@ make_assignment_refusal() {
                 *) : ;;
             esac
             ;;
-        # the container scripts run SR_RUNTIME as a program, so it names one of the two runtimes
-        SR_RUNTIME)
+        # the container scripts run DEVKIT_RUNTIME as a program, so it names one of the two runtimes
+        DEVKIT_RUNTIME)
             case $_value in
                 podman | docker) : ;;
-                *) printf '%s' "SR_RUNTIME is podman or docker, and \`$_value\` is a program run on the host" ;;
+                *) printf '%s' "DEVKIT_RUNTIME is podman or docker, and \`$_value\` is a program run on the host" ;;
             esac
             ;;
-        # the SR_* names the scripts read, and no others: a pattern let `SR_X$(...)` and `SR_X!` through
-        KEEP_PORT | KEEP_NAME | PYTEST_WORKERS | QUALITY_REF | SNAPSHOT_REF | \
-            SR_APT_CACHE | SR_CONTAINER_NAME | SR_DETACH | SR_E2E | SR_E2E_EXTERNAL_SERVER | SR_E2E_HOST | \
-            SR_E2E_NETWORK | SR_E2E_NODE_VOLUME | SR_E2E_SERVER | SR_E2E_URL | SR_IMAGE | SR_KEEP | \
-            SR_MEMORY | SR_NODE_INSTALL | SR_NODE_VOLUME | SR_PLAYWRIGHT_IMAGE | SR_PORT | SR_PYTHON | \
-            SR_TIMEOUT | SR_VENV_VOLUME)
+        # The list is the kit's, and a repository cannot add to it: a name it could add is `SHELL` or `PATH`. Each
+        # DEVKIT_ name here is a setting a person changes for one run, and scripts/guard-names.test.sh holds the
+        # list to the scripts and says why each name that is not here is not.
+        # the DEVKIT_* names the scripts read, and no others: a pattern let `DEVKIT_X$(...)` and `DEVKIT_X!` through
+        KEEP_PORT | KEEP_NAME | PYTEST_WORKERS | QUALITY_REF | MINUTES_READING_REF | SNAPSHOT_REF | FAST_BASE | \
+            CHECK_REF | DEVKIT_CONTAINER_NAME | DEVKIT_DETACH | DEVKIT_E2E_HOST | DEVKIT_E2E_NETWORK | DEVKIT_E2E_NODE_VOLUME | \
+            DEVKIT_E2E_SERVER | DEVKIT_E2E_URL | DEVKIT_E2E_WORKERS | DEVKIT_IMAGE | DEVKIT_KEEP | DEVKIT_MEMORY | \
+            DEVKIT_NODE_INSTALL | DEVKIT_NODE_VOLUME | DEVKIT_PLAYWRIGHT_IMAGE | DEVKIT_PORT | DEVKIT_PYTHON | DEVKIT_SIZE_WORKERS | \
+            DEVKIT_TIMEOUT | DEVKIT_VENV_VOLUME)
             case $_value in
                 *[!A-Za-z0-9_./:~^-]*) printf '%s' "$_name is a plain value, and \`$_value\` is more" ;;
                 *) : ;;
@@ -1200,10 +964,260 @@ $_make_words
 EOF
 }
 
+# The container wrappers also read DEVKIT_ISOLATED, and the first word of
+# `DEVKIT_ISOLATED=1 scripts/container.sh make test` is the wrapper the container rule asks for.
+# Left alone, that is the toolchain on a host that said nothing of the kind. So where the
+# environment has not set it, a command may not.
+#
+# The ways of setting it are too many to list - `env`, `nice`, `sudo -u`, `bash -lc`, `eval`,
+# a `make` argument, a quoted name - and a list that omits one is a list that is walked past.
+# So the question is turned round: a part that names `DEVKIT_ISOLATED` at all is refused, unless
+# what it runs is something that only reads text, where the word is a message or a pattern
+# (`git commit -m`, `gh ... --body`, `grep`). The bare name and not `DEVKIT_ISOLATED=`, because
+# `DEVKIT_ISOLATED+=1`, `read DEVKIT_ISOLATED` and `printf -v DEVKIT_ISOLATED` set it without that text.
+# Quotes and backslashes are taken out first, so `"DEVKIT_ISOLATED=1"` and `DEVKIT_ISOLATED\=1` are
+# the same word as the bare one; `env -u DEVKIT_ISOLATED`, which asks for a container, is let by.
+# `git` and `gh` can run a shell - an alias, `-c core.pager=...`, `rebase -x`, `bisect run` -
+# so they count as readers for the subcommands that only read or write text, and for no
+# other (see `text_subcommand`). What this cannot see: a script written to a file
+# and run afterwards, a word that a command substitution prints (`env $(echo DEVKIT_ISOLATED=1)`),
+# which the guard reads as one opaque word everywhere - and reading inside one would refuse
+# every commit message that mentions the variable - and a name assembled from pieces.
+#
+# Whether a `git` or `gh` part ($1, the whole part) is a subcommand that only reads or
+# writes text. The options before the subcommand are read for what they are: `-C` takes a
+# path, `-c` and `--config-env` run configuration, which can name a shell. `gh`'s `alias`,
+# `extension` and `config` are not in the list.
+text_subcommand() {
+    set -f
+    # shellcheck disable=SC2086  # splitting the part into its words is the point
+    set -- $1
+    set +f
+    _tool=${1##*/}
+    shift
+    while [ "$#" -gt 0 ]; do
+        case $1 in
+            -C) shift ;;
+            -c | -c* | --config-env* | --exec-path* | --git-dir* | --work-tree*) return 1 ;;
+            -*) : ;;
+            *) break ;;
+        esac
+        shift
+    done
+    case $_tool:${1:-} in
+        git:grep)
+            shift
+            ! grep_runs_a_shell "$@"
+            ;;
+        git:log | git:show | git:diff | git:status | git:commit | git:branch | \
+            git:rev-parse | git:ls-files | git:blame | git:tag | git:notes | git:describe | \
+            git:shortlog | git:cat-file | git:merge-base | git:rev-list | git:add) return 0 ;;
+        gh:pr | gh:issue | gh:run | gh:api | gh:release | gh:search) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Whether `git grep`'s options ($@, the words after `grep`) hand something to a shell:
+# `-O`/`--open-files-in-pager`, in any abbreviation git accepts (`--op`) or cluster (`-nO...`),
+# and a word the shell expands (`$opt`), which could be either. git grep takes its options
+# first and refuses one after a pattern or a path, so the scan stops at the first word that is
+# not an option, and at `--`. A value an option takes is not an option: `-e -DEVKIT_ISOLATED` is
+# a pattern. A long option this does not know may take the next word as its value, so that word
+# does not end the scan.
+grep_runs_a_shell() {
+    _value=no
+    for _word in "$@"; do
+        case $_value in
+            yes)
+                _value=no
+                continue
+                ;;
+            maybe) _maybe=yes ;;
+            *) _maybe=no ;;
+        esac
+        _value=no
+        case $_word in
+            --) return 1 ;;
+            '$'*) return 0 ;;
+            --op*) return 0 ;;
+            --regexp | --file | --max-depth | --threads | --context | --after-context | \
+                --before-context | --max-count) _value=yes ;;
+            --*=*) : ;;
+            --*) _value=maybe ;;
+            -?*)
+                # -e -f -A -B -C -m take a value: attached, or the next word when last
+                if cluster_carries "$_word" O efABCm; then
+                    return 0
+                fi
+                _letters=${_word#-}
+                _before=${_letters%%[efABCm]*}
+                if [ "$_before" != "$_letters" ] && [ -z "${_letters#"$_before"?}" ]; then
+                    _value=yes
+                fi
+                ;;
+            *) [ "$_maybe" = yes ] || return 1 ;;
+        esac
+    done
+    return 1
+}
+
+check_isolated_assignment() {
+    if isolated; then
+        return 0
+    fi
+    # `-u NAME` only as its own words: stripped from the whole part, it ate the end of
+    # `X=-u DEVKIT_ISOLATED=1`, which is two assignments, and left `X==1`.
+    _flat=$(printf '%s' "$1" | tr -d "'\"\\\\" |
+        sed -E 's/(^|[[:space:]])-u[[:space:]]*DEVKIT_ISOLATED([[:space:]]|$)/\1\2/g')
+    case $_flat in
+        *DEVKIT_ISOLATED*) : ;;
+        *) return 0 ;;
+    esac
+    if reads_text "$_flat"; then
+        return 0
+    fi
+    refuse "DEVKIT_ISOLATED is the environment's to set, and this command sets it." \
+        "A disposable environment sets it where the agent is started (for isx, the
+template's env). Without it, use the wrappers as they are:
+  make container-check | make container-test | make container-quality
+
+AGENTS.md, \"Everything runs in a container\"."
+}
+
+# Whether a part ($1, quotes already taken out) runs something that only reads text, where a word
+# is a message or a pattern rather than an assignment.
+reads_text() {
+    _trimmed=$1
+    while :; do
+        case $_trimmed in
+            [[:space:]]* | '('* | '{'* | '!'*) _trimmed=${_trimmed#?} ;;
+            *) break ;;
+        esac
+    done
+    _head=${_trimmed%%[[:space:]]*}
+    case ${_head##*/} in
+        git | gh) text_subcommand "$_trimmed" ;;
+        # not `printf`: `printf -v DEVKIT_ISOLATED 1` assigns it, and `set -a` exports it
+        grep | rg | echo | cat | jq | head | tail | ls | wc | diff) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# allexport exports every variable assigned after it, and then a reader can assign DEVKIT_ISOLATED
+# without naming it the way a setter does - `echo ${DEVKIT_ISOLATED:=1}`, an arithmetic `$[...]`,
+# an array subscript - and the wrapper after it reads it from the environment. Every other way
+# of exporting it names it in a part that is not a reader, which check_isolated_assignment
+# refuses. So where the environment has not set it, allexport is refused in every spelling:
+# `set -a` or a cluster holding `a` (`set -euao pipefail`), the same flag to a shell (`bash -a`),
+# and the word `allexport` (`set -o allexport`, `SHELLOPTS=allexport`) outside a reader.
+check_allexport() {
+    if isolated; then
+        return 0
+    fi
+    case $(printf '%s' "$1" | tr -d "'\"\\\\") in
+        *allexport*)
+            if ! reads_text "$(printf '%s' "$1" | tr -d "'\"\\\\")"; then
+                refuse_allexport
+            fi
+            ;;
+        *) : ;;
+    esac
+    _words=$(unquote_values "$1")
+    set -f
+    # shellcheck disable=SC2086  # splitting the part into its words is the point
+    set -- $_words
+    set +f
+    _at_command=yes
+    while [ "$#" -gt 0 ]; do
+        _word=$1
+        shift
+        if [ "$_at_command" = yes ]; then
+            case ${_word##*/} in
+                set | sh | bash | dash | ash | zsh | ksh)
+                    if exports_all "$@"; then
+                        refuse_allexport
+                    fi
+                    return 0
+                    ;;
+                # what may stand before a command: a keyword, a prefix, and the prefix's options
+                then | do | else | elif | if | while | until | '!' | '{' | time | exec | command | \
+                    builtin | sudo | env | nohup | timeout | nice | stdbuf | *=* | -* | [0-9]*) : ;;
+                *) _at_command=no ;;
+            esac
+        fi
+    done
+}
+
+# Whether the options of `set` or of a shell ($@) turn allexport on: a short cluster holding `a`.
+# The options end at `--`, `-`, and the first word that is not one.
+exports_all() {
+    for _word in "$@"; do
+        case $_word in
+            -- | -) return 1 ;;
+            --*) : ;;
+            -*a*) return 0 ;;
+            -* | +*) : ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
+}
+
+refuse_allexport() {
+    refuse "allexport (\`set -a\`, \`set -o allexport\`, \`bash -a\`) exports whatever is assigned after it, DEVKIT_ISOLATED included, under spellings this guard cannot read as setting it." \
+        "Export what a command needs by name, or pass it on the command line:
+  FOO=1 scripts/container.sh make test
+
+AGENTS.md, \"Everything runs in a container\"."
+}
+
+# The command string a shell is handed with `-c`, from the raw part ($1, the shell's name first),
+# or nothing. `-c` may share a cluster - `bash -lc '...'`, `sh -ec '...'` - and other options may
+# stand before it, `-o pipefail` and `--rcfile file` taking a word of their own. The string is the
+# first word after the options; a word before any `-c` is a script, and then there is no string.
+command_string() {
+    _rest=$1
+    _seen_c=no
+    _skip=no
+    while :; do
+        case $_rest in
+            *[[:space:]]*) _rest=${_rest#*[[:space:]]} ;;
+            *) return 0 ;;
+        esac
+        _rest=${_rest#"${_rest%%[![:space:]]*}"}
+        _word=${_rest%%[[:space:]]*}
+        if [ "$_skip" = yes ]; then
+            _skip=no
+            continue
+        fi
+        case $_word in
+            '') return 0 ;;
+            --rcfile | --init-file) _skip=yes ;;
+            --*) : ;;
+            [-+]*)
+                case $_word in
+                    -*c*) _seen_c=yes ;;
+                    *) : ;;
+                esac
+                case $_word in
+                    *[oO]) _skip=yes ;;
+                    *) : ;;
+                esac
+                ;;
+            *)
+                if [ "$_seen_c" = yes ]; then
+                    printf '%s' "$_rest"
+                fi
+                return 0
+                ;;
+        esac
+    done
+}
+
 check_part() {
+    _whole=$1
     check_isolated_assignment "$1"
     check_allexport "$1"
-    _whole=$1
     _stripped=$(strip_prefixes "$1")
 
     # A shell handed a command string is running that command: `sh -c 'pytest tests'` on
@@ -1403,10 +1417,10 @@ split_on_separators() {
                     esac
                     ;;
                 # `(` and `)` group commands, so they end one as surely as `;` does. Left in
-                # place they welded the bracket onto the word beside it: `(git add -A)` was
-                # one command whose first word was `(git`, which is not `git`, so the staging
-                # rule never looked at it - and `(... && make e2e-typecheck)` was refused,
-                # because `e2e-typecheck)` is not a target this repository has.
+                # place they weld the bracket onto the word beside it: `(git add -A)` is one
+                # command whose first word is `(git`, which is not `git`, so the staging rule
+                # never looks at it - and `(... && make e2e-typecheck)` is refused, because
+                # `e2e-typecheck)` is not a target name.
                 ';' | '|' | '(' | ')') _char=$_newline ;;
                 *) : ;;
             esac

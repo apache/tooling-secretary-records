@@ -28,7 +28,7 @@ the app runs before any part begins: building the app, migrating its database, t
 the discovery of what the fixture holds. A module that only startup runs is one every part depends on
 without running it, so a change to one runs everything.
 
-Written where `SR_BEHAVIOUR_EXECUTED` says, beside the record and not in it: which modules a part ran
+Written where `DEVKIT_BEHAVIOUR_EXECUTED` says, beside the record and not in it: which modules a part ran
 moves whenever code moves, and is not behaviour.
 """
 
@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-ENV = "SR_BEHAVIOUR_EXECUTED"
+ENV = "DEVKIT_BEHAVIOUR_EXECUTED"
 _TOOL = 4
 """A `sys.monitoring` tool id nobody else claims: 0-2 and 5 are the debugger's, coverage's, the
 profiler's and the optimiser's."""
@@ -126,7 +126,7 @@ def write(test: str, files: dict[str, list[str]]) -> None:
     _MONITOR.parts = {}
 
 
-SELECT_ENV = "SR_BEHAVIOUR_SELECT"
+SELECT_ENV = "DEVKIT_BEHAVIOUR_SELECT"
 """A file naming the parts to record, where a change reaches only some (`scripts/ci/behaviour.py`)."""
 
 _selected: set[str] | None = None

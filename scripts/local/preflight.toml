@@ -1,0 +1,70 @@
+# The rules of this repository's pre-PR checklist, beside those of the kit (scripts/pr-preflight.sh).
+# The format is in the docstring of scripts/ci/preflight_rules.py.
+
+# Both test layers, and the book that decides what the interface may look like. The interface is not only
+# `assets/`: app/client/templates/ is the server-rendered half, and AGENTS.md's rule is about an interface
+# change rather than about a directory.
+[[rules]]
+title = "the interface"
+touches = ["^assets/", "^app/(client|admin)/(templates|static)/"]
+say = [
+    "Read the design book chapter for what you are touching, and load the",
+    "frontend-design skill. Both, before you touch it: docs/design-book.html.",
+    "A new token, hue, chip, icon meaning or type role needs an issue first AND a",
+    "change to the book in the same PR - CONTRIBUTING.md, Design changes.",
+    "A UI change needs vitest tests beside the code AND Playwright coverage in",
+    "e2e/tests/. One layer is an incomplete change.",
+    "Screenshots in the PR, captured from the spec: scripts/pr-screenshots.sh",
+]
+
+# The async matrix, which is where this repository keeps finding defects.
+[[rules]]
+title = "a component that fetches - answer these before the review does"
+touches = "^assets/src/js/components/.*\\.svelte$"
+reads = "(fetch\\(|await )"
+reads_in = "^assets/src/js/components/"
+say = [
+    "A response arriving late, after a newer one, after the surface closes,",
+    "after an error, after a success: what is on screen, and what does it claim?",
+    "What does the page draw when its first read fails?",
+    "Does the control commit what the list is showing, or what the form now says?",
+]
+
+[[rules]]
+title = "app/api/routes/ - endpoints"
+touches = "^app/(api/routes|admin)/"
+say = [
+    "Every mutating route carries require_role, and a test shows a role without it",
+    "refused. The queue holds personal data, so reading is role-gated too (R-1).",
+    "A mutating endpoint that schedules background work needs a test that drains the",
+    "tasks and asserts the effect: a 200 says nothing about the half that runs after it.",
+]
+
+[[rules]]
+title = "e2e/ - the end-to-end harness"
+touches = "^e2e/"
+say = [
+    "make e2e-typecheck. Running the suite says nothing about the types in it.",
+    "A reused DEVKIT_KEEP container serves the bundle from when it started - drop it",
+    "after any change under app/ or assets/. See e2e/README.md.",
+]
+
+[[rules]]
+title = "app/db/models.py - a new table"
+touches = "^app/db/models\\.py$"
+say = [
+    "Add a sequential Alembic migration in app/db/migrations/versions/.",
+    "Put it in BROWSABLE, with no column holding personal fields, or in",
+    "NOT_BROWSABLE (app/admin/routes.py; AGENTS.md, Adding tables to the DB).",
+]
+
+# What a user can now do is a claim the Documentation page makes, and it is the only account of the workflow
+# anybody reads.
+[[rules]]
+title = "a control moved, was renamed, or somebody can now do something new"
+touches = ["^app/(api/routes|client|admin)/", "^assets/src/js/components/"]
+say = [
+    "The Documentation page changes in the same PR: app/md/documentation/.",
+    "Say who, not just what - the page is read by people checking whether a",
+    "control is theirs, and a route that refuses a role has to say so.",
+]

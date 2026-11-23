@@ -1,0 +1,55 @@
+# The stages of the local gate (`make verify`), as scripts/ci/verify.py reads them. Its docstring has the format.
+
+[extras.behaviour-base]
+# what `make snapshot-base` wrote, which `snapshot` compares with
+kind = "file"
+path = "state/behaviour-base.behaviour-record.json"
+
+[extras.quality-base]
+# what `make quality-base` wrote, which `quality` compares with
+kind = "file"
+path = "state/quality-base.json"
+env = "QUALITY_BASE"
+
+[extras.python-coverage]
+# the quality ratchet reads these reports where `make test-coverage` and `yarn test --coverage` have left them;
+# they are ignored by git, so the files of the tree do not say when one changed
+kind = "file"
+path = "coverage.json"
+
+[extras.frontend-coverage]
+kind = "file"
+path = "assets/coverage/coverage-summary.json"
+
+[extras.trailers]
+# `Behaviour-Allow:` and `Quality-Allow:` are read from the messages of this branch's own commits
+kind = "trailers"
+
+[[stages]]
+# the hooks lint every file, the Makefile among them
+name = "check-all"
+reads_makefile = true
+
+[[stages]]
+# eslint reads the repository's .gitignore (eslint.config.js)
+name = "lint"
+paths = ["assets/", ".gitignore"]
+
+[[stages]]
+name = "test-python"
+longest = true
+
+[[stages]]
+name = "test-frontend"
+paths = ["assets/", ".gitignore"]
+
+[[stages]]
+# a change to the Makefile is one the selection cannot see through, so it records everything: see
+# EVERYTHING_WHEN in scripts/ci/behaviour_selection.py
+name = "snapshot"
+extras = ["behaviour-base", "trailers"]
+reads_makefile = true
+
+[[stages]]
+name = "quality"
+extras = ["quality-base", "python-coverage", "frontend-coverage", "trailers"]

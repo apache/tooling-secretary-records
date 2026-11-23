@@ -14,12 +14,12 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 ---
 name: Install apt packages
 description: >
   The three or four system packages a job needs, from a cache where there is one and from
-  whichever Ubuntu mirror is answering where there is not. No job uses it yet: it is here
-  for the subversion, LDAP and OCR packages the features in REQUIREMENTS.md will need.
+  whichever Ubuntu mirror is answering where there is not.
 
 inputs:
   packages:
@@ -47,7 +47,7 @@ runs:
 
     - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
-        path: ~/.cache/secretary-records-apt
+        path: ~/.cache/devkit-apt
         key: ${{ steps.key.outputs.value }}
 
     - shell: bash
@@ -57,6 +57,6 @@ runs:
         # `$HOME` here rather than in `env:` above, where the value would be the literal
         # string and the cache would be a directory called `~`. The path given to
         # actions/cache is its own to expand, and it does.
-        export SR_APT_CACHE="$HOME/.cache/secretary-records-apt"
+        export DEVKIT_APT_CACHE="$HOME/.cache/devkit-apt"
         # shellcheck disable=SC2086  # a list of packages, deliberately unquoted
         scripts/ci/apt-install.sh $PACKAGES

@@ -16,6 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # The app for looking at by hand, inside the container `make container-keep` starts: the e2e
 # fixtures, with /e2e/login/<uid>?roles=... in place of ASF OAuth, on 0.0.0.0:8080.
 #

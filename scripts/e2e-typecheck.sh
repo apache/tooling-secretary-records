@@ -1,4 +1,5 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Type-check the Playwright specs, in the Playwright image, without starting the app.
 #
 # This is what `make e2e-typecheck` runs, and it is the only thing that checks these
@@ -6,9 +7,9 @@
 # anyway and passes for as long as the wrongness does not happen to throw.
 #
 # It does not catch a deliberate `as unknown as` - a double assertion beats any checker,
-# which is why the one on #729 needed a reviewer rather than a tool. It catches the
+# which is why that one takes a reviewer rather than a tool. It catches the
 # commoner ways: a name misspelt in a typed position (TS2820), an untyped parameter that
-# silently unchecks every call made on it (TS7006 - there were nine), an index that might
+# silently unchecks every call made on it (TS7006), an index that might
 # be `undefined` (TS18048), and a binding nothing reads (TS6133).
 #
 # Seconds rather than minutes: no application container, no browser, nothing served. The
@@ -20,10 +21,10 @@
 #   scripts/e2e-typecheck.sh
 #
 # Environment:
-#   SR_RUNTIME             container runtime to use (default: podman, else docker)
-#   SR_PLAYWRIGHT_IMAGE    the image to run in, which carries the node the compiler runs
+#   DEVKIT_RUNTIME             container runtime to use (default: podman, else docker)
+#   DEVKIT_PLAYWRIGHT_IMAGE    the image to run in, which carries the node the compiler runs
 #                           on - pin it to reproduce a version-specific result
-#   SR_E2E_NODE_VOLUME     name Playwright's node_modules volume outright, rather than
+#   DEVKIT_E2E_NODE_VOLUME     name Playwright's node_modules volume outright, rather than
 #                           taking the name derived from this checkout
 
 set -eu
@@ -37,11 +38,11 @@ repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd)
 
 suffix=$(checkout_suffix "$repo_root")
 
-PLAYWRIGHT_IMAGE="${SR_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.61.1-noble}"
-NODE_VOLUME="${SR_E2E_NODE_VOLUME:-secretary-records-e2e-node$suffix}"
+PLAYWRIGHT_IMAGE="${DEVKIT_PLAYWRIGHT_IMAGE:-mcr.microsoft.com/playwright:v1.61.1-noble}"
+NODE_VOLUME="${DEVKIT_E2E_NODE_VOLUME:-$DEVKIT_SERVICE-e2e-node$suffix}"
 
-# Already inside a disposable environment (SR_ISOLATED=1): no image to run it in.
-if [ "${SR_ISOLATED:-}" = 1 ]; then
+# Already inside a disposable environment (DEVKIT_ISOLATED=1): no image to run it in.
+if [ "${DEVKIT_ISOLATED:-}" = 1 ]; then
     status=0
     (
         cd "$repo_root/e2e" &&
@@ -56,8 +57,8 @@ if [ "${SR_ISOLATED:-}" = 1 ]; then
     exit "$status"
 fi
 
-if [ -n "${SR_RUNTIME:-}" ]; then
-    runtime="$SR_RUNTIME"
+if [ -n "${DEVKIT_RUNTIME:-}" ]; then
+    runtime="$DEVKIT_RUNTIME"
 elif command -v podman >/dev/null 2>&1; then
     runtime=podman
 elif command -v docker >/dev/null 2>&1; then
@@ -68,7 +69,7 @@ else
 fi
 
 echo "type-checking the end-to-end specs" >&2
-own_volume "$NODE_VOLUME" "secretary-records-e2e-node$suffix"
+own_volume "$NODE_VOLUME" "$DEVKIT_SERVICE-e2e-node$suffix"
 # The inner script runs inside the container, so the single quotes around it are
 # deliberate - as in e2e-container.sh, which quotes its own the same way.
 status=0

@@ -15,7 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# https://localhost in front of the app on https://localhost:4500, started by `make dev`.
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
+# https://localhost in front of the app on https://localhost:4500, started by `make dev-host`.
 #
 # ASF OAuth refuses a redirect URI that carries a port, and the app builds that URI from the
 # host the browser used, so signing in only works at https://localhost. The proxy passes the

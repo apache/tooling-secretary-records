@@ -1,4 +1,5 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Find what the container scripts made for checkouts that no longer exist, and remove it.
 #
 #   scripts/container-gc.sh          # lists it, and removes nothing
@@ -19,7 +20,7 @@
 #
 # Run it from any checkout of this repository: every worktree of it is asked about.
 #
-# Environment: SR_RUNTIME as in container.sh.
+# Environment: DEVKIT_RUNTIME as in container.sh.
 
 set -eu
 

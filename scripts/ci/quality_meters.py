@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 
 """What the ratchet measures, and how each meter reads it.
 
@@ -59,29 +60,31 @@ TREE = ROOT
 # there would both cost minutes and measure that commit's toolchain instead of this one.
 NODE_BIN = ROOT / "assets" / "node_modules" / ".bin"
 
-# The bars the codebase is held to, the same as BAT's (apache/tooling-agenda), whose
-# ratchet this is. They are what the readings count violations *of*, and lowering one
-# would quietly forgive code rather than fix it. Raising one is a real decision and
-# belongs in a commit of its own. The frontend equivalents live in assets/eslint.config.js,
-# which has to hold them for the editor to show them too.
+# The bars the codebase is held to. Nothing meets them today, which is the point: they
+# are what the baseline counts violations *of*, and lowering one would quietly forgive
+# code rather than fix it. Raising one is a real decision and belongs in a commit of its
+# own. The frontend equivalents live in assets/eslint.config.js, which has to hold them
+# for the editor to show them too.
 MAX_CYCLOMATIC = 12
 MAX_COGNITIVE = 15
 
-# How long a file may be before it is on this meter. Taken from BAT, where it was roughly
-# where that tree already divided rather than a round number imposed on it.
+# How long a file may be before it is on this meter. Twenty-one files are past it and the
+# next one down is at 491, so it is roughly where the tree already divides rather than a
+# round number imposed on it.
 MAX_LINES = 500
 
 # What a file carved out of another costs in lines whatever is in it: the license header, a
-# module docstring, and the imports it no longer shares with the file it left. Measured on
-# BAT as the lines before the first definition, which came to between 49 and 73. Eighty
-# covers them, and is too small to hide a function in.
+# module docstring, and the imports it no longer shares with the file it left. Measured as the
+# lines before the first definition of files carved out of larger ones: between 49 and 73.
+# Eighty covers them, and is too small to hide a function in.
 SPLIT_PREAMBLE = 80
 
 # Coverage is not reproducible to the last decimal: the same suite measured under a
 # different number of xdist workers moves by a few hundredths, and CI's worker count is
-# whatever the runner has. Measured on BAT at 66.46 serial and 66.43 under `-n auto` on the
-# same tree - so a percentage has to move by more than this before it counts either way, or
-# the first CI run would fail on arithmetic rather than on anything anybody wrote.
+# whatever the runner has. Measured at 66.46 serial and 66.43 under `-n auto` on the same
+# tree - so a percentage has to move by more than this before it counts either way, or
+# the first CI run would fail on arithmetic rather than on anything anybody wrote. Small
+# enough that it is not somewhere to hide: 0.1% of app/ is about fourteen lines.
 #
 # It applies only to the two `direction="up"` meters. Counts are exact, and get none.
 PERCENT_SLACK = 0.1
@@ -156,9 +159,8 @@ def _sources(*names: str) -> list[str]:
     environment they were installed into is - while the code they read may be somewhere
     else entirely.
 
-    Only the ones that exist. A tree with none of them is a tree with nothing to find - the
-    commit this repository started from held two markdown files - and handing a tool a path
-    that is not there makes it fail rather than report nothing.
+    Only the ones that exist. A tree with none of them is a tree with nothing to find, and handing a
+    tool a path that is not there makes it fail rather than report nothing.
     """
 
     return [str(TREE / name) for name in names if (TREE / name).exists()]
@@ -259,8 +261,8 @@ def frontend_complexity() -> dict[str, float]:
     stays the thing that ratchets - see the comment beside them.
     """
 
-    # A tree with no frontend has nothing for eslint to read: the base of the first change
-    # here was one. The same holds for the knip and jscpd meters below.
+    # A tree with no frontend has nothing for eslint to read. The same holds for the knip and jscpd
+    # meters below.
     if not (_assets() / "eslint.config.js").exists():
         return {}
     output = _run([str(NODE_BIN / "eslint"), "src", "-f", "json"], cwd=_assets())

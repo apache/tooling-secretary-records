@@ -164,10 +164,10 @@ Re-run a lone failure before believing it.
 
 ## The suite tests a change you did not make
 
-`SR_KEEP=1` leaves the app container up so the next narrow run skips most of a
+`DEVKIT_KEEP=1` leaves the app container up so the next narrow run skips most of a
 minute of startup. The `e2e/` directory is bind-mounted, so spec edits are picked up
 live - but everything under `app/` and `assets/` is inside the running server,
-and a change there needs the container restarted. Drop `SR_KEEP` (or remove the
+and a change there needs the container restarted. Drop `DEVKIT_KEEP` (or remove the
 server container) after one.
 
 `scripts/e2e-container.sh` prints a warning when it reuses a container. It is one
@@ -257,9 +257,9 @@ overrun is charged to itself rather than to a bystander.
 `podman ps --filter label=secretary-records.checkout` lists those, and says which checkout each
 came from. It does not list them all: `scripts/e2e-container.sh` and
 `scripts/e2e-typecheck.sh` build their own invocations and have none of it, and the
-e2e app server outlives its run under `SR_KEEP` by design. A container started by
+e2e app server outlives its run under `DEVKIT_KEEP` by design. A container started by
 hand has none of it either - use `make container-keep` for one you mean to keep,
-and `SR_TIMEOUT` or `SR_MEMORY` for what that does not cover.
+and `DEVKIT_TIMEOUT` or `DEVKIT_MEMORY` for what that does not cover.
 
 ## The ratchet says `python-cognitive: could not be read`, exited 139
 
@@ -378,3 +378,46 @@ Two things about that file surprise people:
 - **It is read from the default branch only.** A change to it does nothing until it
   merges, and the review round of the pull request that changes it still runs under the
   old configuration. There is no way to test it on the branch.
+
+## A gate waits for a slot
+
+`make container-verify`, `container-test` and the other targets that run the whole suite are
+sized to the machine and hold one of its gate slots while they run - and so are the same
+commands given to `scripts/container.sh` directly (`make test`, `verify`, `verify-fresh`,
+`test-python`, `test-coverage`, or `uv run scripts/ci/verify.py`). A 15 GiB machine has one
+slot, a 32 GiB machine three: as many as gates of six workers fit in MemTotal, after a spare
+for everything else. A run's workers and memory cap come from its share of MemTotal and of the
+cores, so they are the same whenever it starts (`scripts/container-size.sh` has the rule and
+the runs its constants were read from). A run that finds every slot held waits, and says who
+holds them:
+
+```text
+container.sh: waiting for one of this machine's 1 gate slot(s), held by:
+  tooling-secretary-records-other (pid 12345), for 4m10s
+```
+
+It starts by itself when that run ends: a waiting run is blocked on the lock, and the kernel wakes
+it the moment the slot is let go. Several runs waiting for one slot are woken in no promised
+order. A slot is a lock on a file in the repository's common git directory, `devkit-gate-slot.<n>`,
+so every worktree of the repository shares them; a clone kept somewhere else has its own. Do not
+delete a slot file while a run holds it: the next run creates a new file of that name, locks
+that, and starts beside the one still running.
+
+The lock is on a descriptor that container.sh opens and the `podman run` it starts inherits -
+and under podman, conmon and the network helper (slirp4netns) inherit it too, so the slot is held
+until the container ends, not only while the client lives. Under docker, whose daemon starts the
+container, only the client holds it. The kernel lets the lock go when the last of them ends,
+however it ends, so there is nothing stale to clean up. A container whose client was killed
+holds its slot until it ends or reaches its deadline; `podman ps --filter label=secretary-records.checkout`
+finds it, and `podman rm -f` lets the slot go.
+
+Nothing else is kept out by a slot: an e2e server, a `make container-pytest`, a `make
+container-test-fast` (a selection, unsized, in the fixed 6g), or a run on a
+branch from before this holds memory the slots do not know about.
+
+`PYTEST_WORKERS=3` or `DEVKIT_MEMORY=10g` given outright replaces what the run would be given, and
+it still waits for a slot - each is a run of the whole suite. `DEVKIT_MEMORY` takes a whole number
+with b, k, m or g, each also as kb, ki or kib, in either case (`6g`, `6144m`, `6GiB`); a
+fraction (`6.5g`), a `t` or a space is refused, and so is anything else. `make container-verify
+DEVKIT_SIZE_WORKERS=0` takes no slot and puts the fixed settings of before back: 6g and as many
+workers as cores, up to six.

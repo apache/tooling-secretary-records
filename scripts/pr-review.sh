@@ -1,10 +1,9 @@
 #!/bin/sh
+# Comes from apache/tooling-devkit (devkit.files): change it there, not in a copy.
 # Read a pull request's review in full - including the part the headline hides.
 #
-# A Copilot review that says "generated no new comments" has often found something and
-# collapsed it into a `Suppressed comments (N)` block. Measured over #729, #730 and #731:
-# thirteen rounds, eight of which found something, and three of those eight put every
-# finding in that block under a headline saying there were none.
+# A Copilot review that says "generated no new comments" can have found something and
+# collapsed it into a `Suppressed comments (N)` block, under a headline saying there were none.
 #
 # A review is also tied to the commit it ran against and does not carry forward, so a
 # review of an earlier push says nothing about the branch as it stands now.
@@ -12,8 +11,7 @@
 # And a review does not have to be a review. A comment on the pull request itself is not
 # one, opens no thread, and is not among the pull request's review comments - so a script
 # that reads reviews can report "did not run" and "0 unresolved", correctly, over a
-# timeline full of findings. That happened on #751-#753, which is why the conversation is
-# swept too.
+# timeline full of findings. That is why the conversation is swept too.
 #
 # Reading all of that by hand takes four `gh api` calls with a `--jq` filter on each, and
 # a filter that matches nothing prints nothing - which looks exactly like a clean review.
@@ -24,8 +22,8 @@
 #   scripts/pr-review.sh <pr-number>
 #
 # And answering a review is not being reviewed. A reply to a review thread is posted as a
-# review, by whoever replied - so on #838 the author's own reply sat on the head commit
-# above a reviewer's newest round on a superseded one, and the verdict called that clean.
+# review, by whoever replied - so the author's own reply can sit on the head commit above a
+# reviewer's newest round on a superseded one, and the verdict would call that clean.
 # The rounds below print every review; only the ones the author did not write count
 # towards the verdict.
 #
@@ -68,16 +66,21 @@ fail() {
 }
 
 # A reviewer that could not run still leaves a review, and its body is the reason it
-# could not rather than anything about the code. Found by running this against its own
-# pull request while the Actions budget was spent: Copilot posted "The job was not
-# started because recent GitHub Actions payments have failed", on the head commit, with
-# no threads - which this script read as a clean round, which is the very thing it exists
-# to stop. A round that did not happen is not a round that found nothing. Copilot's own
-# failure is a body that opens "Copilot encountered an error" (#682, #808, #880, #950,
-# #951, #953), anchored because a real review of a change like this one quotes it.
+# could not rather than anything about the code: Copilot posts "The job was not started
+# because recent GitHub Actions payments have failed" on the head commit, with no threads,
+# which would read as a clean round - the very thing this script exists to stop. A round
+# that did not happen is not a round that found nothing. Copilot's own failures are a body
+# that opens "Copilot encountered an error" or, refused for the requester's quota,
+# "Copilot was unable to review this pull request" - each matched only where the body opens
+# with it, because a real review of a change like this one quotes it, and `^` in grep would
+# match the start of any line.
 did_not_run() {
+    case "$1" in
+        'Copilot encountered an error and was unable to review'* | 'Copilot was unable to review this pull request'*) return 0 ;;
+        *) ;;
+    esac
     printf '%s' "$1" |
-        grep -qiE 'job was not started|spending limit|payments have failed|workflow run failed|could not be completed|^Copilot encountered an error and was unable to review'
+        grep -qiE 'job was not started|spending limit|payments have failed|workflow run failed|could not be completed'
 }
 
 head_sha=$(gh pr view "$pr" --json headRefOid --jq '.headRefOid') ||
@@ -88,8 +91,6 @@ head_sha=$(gh pr view "$pr" --json headRefOid --jq '.headRefOid') ||
 # Replying to a review thread posts a review, under the account replying - so a session
 # that answers a finding and then asks whether the branch has been reviewed is told yes,
 # by its own reply, while the reviewer's newest round still sits on a superseded commit.
-# Seen on #838: `sstriker COMMENTED 4215da67` above `copilot COMMENTED 05b1992c`, verdict
-# clean, nothing having read the head.
 #
 # Refused rather than defaulted, because there is no safe default: an empty author excludes
 # nobody, which is the behaviour this exists to remove, and reinstating it exactly when the
@@ -109,8 +110,7 @@ printf 'state: %s\nhead:  %s\n\n' "$state" "$head_sha"
 # --- Rounds -----------------------------------------------------------------
 #
 # Every review, oldest first, so that "the last two said nothing and the third found a
-# bug" is visible rather than inferred. It happened on #729: three reviews of 53f5076f,
-# the first two clean, the third holding the defect the branch shipped to fix.
+# bug" is visible rather than inferred.
 
 rounds=$(gh api --paginate "repos/:owner/:repo/pulls/$pr/reviews" \
     --jq '.[] | [.submitted_at, .user.login, .state, .commit_id, .id] | @tsv') ||
@@ -187,8 +187,7 @@ fi
 # --- Every suppressed block, not only the newest one ------------------------
 #
 # A suppressed finding lives in the body of the round that raised it and nowhere else: it
-# opens no thread, and it is not among the pull request's review comments. Checked on
-# #731, where the block named `BAT_PLAYWRIGHT_IMAGE` and no inline comment did.
+# opens no thread, and it is not among the pull request's review comments.
 #
 # So a round that reports one, followed by a clean round, leaves the finding visible only
 # in a body nobody has any reason to open again. Every round is swept here for that
@@ -226,11 +225,11 @@ printf '\nThese open no threads and are not review comments, so nothing below tr
 # the pull request's review comments - so nothing above sees it. It is also where a review
 # written by a person rather than by Copilot usually lands.
 #
-# On #751, #752 and #753 it was where every real finding was. The sections above reported
-# "THIS REVIEW DID NOT RUN" and "unresolved threads: 0", both correctly, while three
-# comments carrying eight findings between them sat in the timeline unmentioned - so the
-# script answered exactly the question it was asked and still sent its reader away with
-# the wrong idea. That is the same failure as a `--jq` filter matching nothing.
+# It can be where every real finding is: the sections above report "THIS REVIEW DID NOT
+# RUN" and "unresolved threads: 0", both correctly, while comments carrying findings sit in
+# the timeline unmentioned - so the script would answer exactly the question it was asked
+# and still send its reader away with the wrong idea. That is the same failure as a `--jq`
+# filter matching nothing.
 #
 # Printed whole, oldest first, for the reason the rest of this exists: a count of findings
 # is not the findings.
@@ -278,7 +277,7 @@ printf '\nA comment resolves nothing and a reply is only another comment, so not
 # The owner and name are asked for rather than written in: every other call here goes
 # through `:owner/:repo`, which gh fills in from the checkout, and a graphql query is the
 # one place that templating does not reach. Written in, the script reads a fork's pull
-# request numbers against apache/tooling-secretary-records - answering about somebody else's #731.
+# request numbers against this repository - answering about somebody else's pull request.
 owner=$(gh repo view --json owner --jq '.owner.login') || fail "could not tell which repository this is"
 name=$(gh repo view --json name --jq '.name') || fail "could not tell which repository this is"
 
@@ -338,11 +337,10 @@ fi
 # skipped**, where its own `if:` was false and the pull request still draws a tick.
 #
 # What this cannot see, and does not claim to: a *workflow* filtered out by `paths:` leaves
-# no entry in the rollup at all. In BAT, #916 touched only AGENTS.md and has seven entries
-# with no `corpus` among them; #917 has eight, with it. So a branch whose change a workflow's
-# `paths:` list fails to name reads here as every check passing. Catching it would mean
-# knowing which jobs this branch ought to have run, which is a different question from
-# reading what did; `scripts/pr-preflight.sh` is where that one belongs.
+# no entry in the rollup at all. So a branch whose change a workflow's `paths:` list fails to
+# name reads here as every check passing. Catching it would mean knowing which jobs this
+# branch ought to have run, which is a different question from reading what did; a
+# repository's preflight, where it has one, is where that one belongs.
 #
 # The rollup is the head commit's by construction - it hangs off the pull request's own
 # head - so unlike a review it cannot be about code that has since moved.
@@ -508,6 +506,6 @@ fi
 
 printf 'VERDICT: the newest review is on the head commit, nothing is unresolved, and\n'
 printf 'all %s checks passed.\n' "$check_count"
-printf 'That is one clean round, which is not the same as being right - #729 had two\n'
-printf 'before the third found a real defect in code neither had changed.\n'
+printf 'That is one clean round, which is not the same as being right: two clean rounds can\n'
+printf 'precede a third that finds a real defect in code neither had changed.\n'
 exit 0
