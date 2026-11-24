@@ -98,11 +98,10 @@ async def _shutdown_database() -> None:
     """Dispose of the engine and forget it.
 
     Clearing the globals is the point of the second half. Left set, they still hand out
-    sessions on a disposed engine, and each one checks out a *new* aiosqlite connection -
-    whose worker thread is not a daemon, and which nothing is left to close. Anything
-    outliving shutdown could quietly leave the process unable to exit. Failing loudly at the
-    point of use beats hanging at interpreter exit. In a ``finally`` for the same reason: a
-    ``dispose()`` that raises is when we least want the globals left pointing at it.
+    sessions on a disposed engine, and each one checks out a *new* aiosqlite connection that
+    nothing is left to close. Failing loudly at the point of use beats a session that works on
+    an engine nobody owns. In a ``finally`` for the same reason: a ``dispose()`` that raises is
+    when we least want the globals left pointing at it.
     """
     global _global_engine, _global_session_maker
 

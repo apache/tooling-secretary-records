@@ -201,3 +201,17 @@ async def test_a_bundle_that_is_there_is_cached_for_good(running_app, tmp_path, 
 
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "public, max-age=31536000, immutable"
+
+
+async def test_me_says_who_is_asking_and_nothing_more(authenticated_client):
+    client = await authenticated_client("ada")
+
+    assert await (await client.get("/api/me")).get_json() == {"uid": "ada", "roles": ["secretary"]}
+
+
+async def test_a_vendor_file_that_is_not_there_is_never_cached(running_app):
+    """Every error under /assets/ is no-store, not only a bundle's."""
+    response = await running_app.test_client().get("/assets/vendor/css/not-there.css")
+
+    assert response.status_code == 404
+    assert response.headers["Cache-Control"] == "no-store"
