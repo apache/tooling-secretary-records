@@ -55,6 +55,8 @@ jobs:
       contents: read
       # the one issue a red night opens, or adds to
       issues: write
+      # which pull request each commit was merged from, and its commits (scripts/ci/behaviour_pulls.py)
+      pull-requests: read
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -176,11 +178,23 @@ jobs:
           fi
           uv run scripts/ci/behaviour.py base --ref "$base"
 
+      # A squash merge joins its branch's messages into one, where git reads none of their trailers: each
+      # commit's pull request is asked for its own. A step of its own, so that the token reaches GitHub's
+      # API and git fetch here and not the app's code in the recording. It fails rather than read nothing.
+      - name: Read what the pull requests merged since the base allowed
+        id: pulls
+        if: steps.run.outputs.value == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run scripts/ci/behaviour_pulls.py --ref "$(jq -r .commit state/behaviour-base.behaviour-record.json)"
+
       - name: Record main in full, and compare
         id: compare
         if: steps.run.outputs.value == 'true'
         # compared with the commit the base record is of: the last full run, or the one asked for
-        run: uv run scripts/ci/behaviour.py check --full --ref "$(jq -r .commit state/behaviour-base.behaviour-record.json)"
+        run: |
+          uv run scripts/ci/behaviour.py check --full --pulls state/behaviour-pulls.json \
+              --ref "$(jq -r .commit state/behaviour-base.behaviour-record.json)"
 
       - name: Keep the difference for whoever reads the failure
         if: ${{ !cancelled() && steps.compare.outcome != 'skipped' }}
