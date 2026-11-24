@@ -1,0 +1,28 @@
+name: Shared files are as the kit has them
+
+# Each file this repository takes from apache/tooling-devkit is compared with the kit at the commit in
+# devkit.lock (scripts/devkit-sync.sh --check). A copy edited here fails it: the change belongs in the kit.
+# So does an override in devkit.lock past its day.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # git and sh are all it needs, and python3 where a .claude/settings.additions.json is merged
+      - name: Compare each copied file with the kit at the commit in devkit.lock
+        run: sh scripts/devkit-sync.sh --check
