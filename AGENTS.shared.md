@@ -7,7 +7,8 @@ The rules every Tooling repository shares: the agent rules, and what holds them.
 rules that are only its own; it cannot make a rule here weaker.
 
 The scripts and `.claude/` files this file names are kit files too (see "Changing a file that comes from
-the kit"). The `make` targets it names come from each repository's own Makefile, which is not a kit file.
+the kit"). The `make` targets it names come from `devkit.mk`, a kit file that each repository's Makefile includes; the
+Makefile itself is the repository's, with the targets that are only its own.
 The names a repository gives its own images, volumes and containers come from `devkit.conf`. The
 variables the scripts read all start with `DEVKIT_`.
 

@@ -27,10 +27,10 @@ what is printed is one line per stage, and the end of the log of one that failed
 A stage that passed is not run again until something it reads changes. What it reads is its key: the
 content of its files - tracked, staged or untracked, as they are in the working tree, so an edit the
 gate has not seen is a change - the commands its make target runs (`make -n`, so that a comment in the
-Makefile is not, for a stage that does not read the Makefile itself), and what else the stage depends
-on (`extras`). The key is taken before the stage
-runs and again after it, and a pass is recorded only when the two agree: a hook that rewrote a file
-while pytest was reading it leaves nothing recorded, and the next run runs both again.
+Makefile or in devkit.mk, which it includes, is not, for a stage that does not read the Makefile itself),
+and what else the stage depends on (`extras`). The key is taken before the stage runs and again after it,
+and a pass is recorded only when the two agree: a hook that rewrote a file while pytest was reading it
+leaves nothing recorded, and the next run runs both again.
 
 A stage whose files are only some of the tree says which (`Stage.paths`), and each of those lists is
 a claim that the stage reads nothing else. Where a stage reads the whole tree it says so, and a
@@ -274,6 +274,10 @@ def recipe(stage: Stage) -> str:
     return finished.stdout
 
 
+MAKEFILES = ("Makefile", "devkit.mk")
+"""What a stage's recipe comes from: read through `make -n` rather than as files, unless the stage reads them."""
+
+
 def key(stage: Stage, files: dict[str, str], config: Config) -> str:
     digest = hashlib.sha256()
     for part in (stage.name, recipe(stage), sys.version):
@@ -281,7 +285,7 @@ def key(stage: Stage, files: dict[str, str], config: Config) -> str:
     for name in (*config.environment, *(n for n in _BUILTIN_ENVIRONMENT if n not in config.environment)):
         digest.update(f"{name}={os.environ.get(name, '')}\0".encode())
     for path, blob in files.items():
-        if path == "Makefile" and not stage.reads_makefile:
+        if path in MAKEFILES and not stage.reads_makefile:
             continue
         if stage.paths is None or path.startswith(stage.paths):
             digest.update(f"{path} {blob}\0".encode())
