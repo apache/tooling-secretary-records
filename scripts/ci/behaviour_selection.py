@@ -64,7 +64,9 @@ EVERYTHING_WHEN: Final = (
     "scripts/ci/behaviour.py",
     "scripts/ci/behaviour_selection.py",
     "scripts/ci/behaviour_gate.py",
+    "scripts/ci/behaviour_rules.py",
     "scripts/ci/trailers.py",
+    "scripts/local/behaviour.toml",
     "config.yaml.example",
     # the dependencies, and what builds and runs it
     *DEPENDENCIES,
