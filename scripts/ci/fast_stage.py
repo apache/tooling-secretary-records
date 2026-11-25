@@ -48,6 +48,7 @@ import subprocess
 import sys
 from typing import Final
 
+import fast_stage_rules
 from fast_stage_record import DURATIONS, GREEN, STATE, begin, git, passed, read_json, record
 
 ROOT: Final = pathlib.Path(__file__).resolve().parents[2]
@@ -73,9 +74,6 @@ TIER0_MAX_SECONDS: Final = 15.0
 SECONDS_PER_TEST: Final = 0.7
 """What a test is taken to cost before any run has recorded one: about the suite's mean."""
 
-BROAD_PACKAGES: Final = frozenset({"api", "models", "actions", "md"})
-"""Packages whose tests are too many for a change to one module to select them all."""
-
 NAMED_BY_DIRECTORY: Final = frozenset({"__init__", "routes", "models", "service", "tables"})
 
 FULL_WHEN: Final = {
@@ -85,16 +83,12 @@ FULL_WHEN: Final = {
     ".python-version": "the interpreter",
     "tests/__init__.py": "the test package",
     CONFTEST: "the fixtures every test stands on",
-    "tests/test-config.yaml": "the configuration every test runs with",
     "tests/data/**": "the fixture data",
     "tests/behaviour/**": "the behaviour harness",
-    "schema/**": "data read by path, which no module name says",
     "app/__init__.py": "startup",
-    "app/webapp.py": "startup: the application every route test runs",
-    "server.py": "startup",
-    "app/*/migrations/**": "a migration, which every database is built through",
 }
-"""What reaches every test, as do the modules tests/conftest.py imports (`_conftest_imports`)."""
+"""What reaches every test in any repository, as do the modules tests/conftest.py imports
+(`_conftest_imports`). A repository adds its own in `scripts/local/fast_stage.toml` (`fast_stage_rules`)."""
 
 NOT_THE_GATE: Final = (
     "This was the fast stage, not the gate: run `make container-verify` before you push. "
@@ -181,9 +175,10 @@ def _conftest_imports(root: pathlib.Path) -> set[str]:
 def full_run_reasons(root: pathlib.Path, changed: set[str]) -> list[str]:
     """Why a change needs the whole suite: it reaches every test."""
     imported = _conftest_imports(root)
+    full_when = fast_stage_rules.load_rules(root, FULL_WHEN).full_when
     reasons = []
     for path in sorted(changed):
-        if why := next((why for glob, why in FULL_WHEN.items() if fnmatch.fnmatchcase(path, glob)), None):
+        if why := next((why for glob, why in full_when.items() if fnmatch.fnmatchcase(path, glob)), None):
             reasons.append(f"{path}: {why}")
         elif path in imported:
             reasons.append(f"{path}: imported by {CONFTEST}, which every test stands on")
@@ -247,16 +242,17 @@ def _naming(path: str, tests: dict[str, str]) -> set[str]:
     return _mentioning(pattern, tests)
 
 
-def _module_rule(path: str, tests: dict[str, str]) -> set[str]:
-    """A file under app/: the tests named for it and, outside the broad packages, those of its package.
-    A module is named by its directory when its own name says only its role."""
+def _module_rule(path: str, tests: dict[str, str], broad_packages: frozenset[str]) -> set[str]:
+    """A file under app/: the tests named for it and, outside the repository's broad packages
+    (`scripts/local/fast_stage.toml`), those of its package. A module is named by its directory when its own
+    name says only its role."""
     parts = path.split("/")
     named_by_directory = parts[-1].split(".", 1)[0] in NAMED_BY_DIRECTORY and len(parts) > 2
     stems = {_stem(parts[-2] if named_by_directory else parts[-1])}
     if not path.endswith(".py") and len(parts) > 2:
         stems.add(_stem(parts[-2]))
     selected = set().union(*(_named_for(stem, tests) for stem in stems))
-    if len(parts) > 2 and parts[1] not in BROAD_PACKAGES:
+    if len(parts) > 2 and parts[1] not in broad_packages:
         package = parts[1]
         selected |= {test for test in tests if test.startswith(f"tests/{package}/")}
         selected |= {test for test in tests if test.rsplit("/", 1)[-1].startswith(f"test_{package}")}
@@ -273,12 +269,12 @@ def _test_rule(path: str, tests: dict[str, str]) -> set[str]:
     return {test for test in tests if test.startswith(f"{directory}/")} if directory != "tests" else importers
 
 
-def path_rule(_root: pathlib.Path, path: str, tests: dict[str, str]) -> set[str]:
+def path_rule(root: pathlib.Path, path: str, tests: dict[str, str]) -> set[str]:
     """The test files a changed path selects by its name and place."""
     if path.startswith("tests/"):
         return _test_rule(path, tests)
     if path.startswith("app/"):
-        return _module_rule(path, tests)
+        return _module_rule(path, tests, fast_stage_rules.load_rules(root, FULL_WHEN).broad_packages)
     if path.startswith("scripts/") and path.endswith(".py"):
         return _named_for(_stem(path.rsplit("/", 1)[-1]), tests)
     return set()
@@ -395,6 +391,10 @@ def _verdict(status: int, plan: Plan) -> tuple[int, str]:
 
 
 def run(root: pathlib.Path, given_base: str | None, pytest_arguments: list[str]) -> int:
+    try:
+        fast_stage_rules.load_rules(root, FULL_WHEN)
+    except fast_stage_rules.LocalError as error:
+        raise SystemExit(str(error)) from error
     base = find_base(root, given_base)
     committed, uncommitted = changed_since(root, base.sha)
     changed = committed | uncommitted
