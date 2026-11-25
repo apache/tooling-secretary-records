@@ -46,6 +46,7 @@ HARNESS_FILES: Final = (
     "tests/conftest.py",
     "scripts/ci/behaviour*.py",
     "scripts/ci/trailers.py",
+    "scripts/local/behaviour.toml",
 )
 """What the record is made with: a change here changes what is recorded without the app changing.
 

@@ -24,7 +24,7 @@
 # slot is free - nothing waits on MemAvailable. Where even one worker does not fit a slot, the run
 # has one worker and a cap of what the slot holds, and says so.
 #
-# A slot is a lock file, devkit-gate-slot.<n>, in the repository's common git directory, which every
+# A slot is a lock file, <service>-gate-slot.<n> (bat-gate-slot.<n> in tooling-agenda), in the repository's common git directory, which every
 # worktree shares. A run takes the first it can lock with `flock -n`. Where every slot is held it
 # blocks on slot 0, so that the kernel wakes it the moment that slot is let go, and tries the others
 # again every DEVKIT_GATE_POLL seconds; it says which checkouts hold them. Several runs waiting on one
@@ -243,14 +243,14 @@ gate_openable() {
 gate_slot_dir() {
     _common=$(git -C "$repo_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
     # in a subshell, so that a probe file that cannot be opened fails the probe and not the run
-    (exec 9>> "$_common/devkit-gate-probe" && flock -s -n 9) 2>/dev/null || return 0
+    (exec 9>> "$_common/$DEVKIT_SERVICE-gate-probe" && flock -s -n 9) 2>/dev/null || return 0
     echo "$_common"
 }
 
 # Write who holds slot $1 of $2, just taken, for people to read - in place of whoever held it before.
 gate_holding() {
     GATE_SLOT=$1
-    printf '%s %s %s\n' "$CHECKOUT_LABEL" "$$" "$(date +%s)" > "$2/devkit-gate-slot.$1"
+    printf '%s %s %s\n' "$CHECKOUT_LABEL" "$$" "$(date +%s)" > "$2/$DEVKIT_SERVICE-gate-slot.$1"
 }
 
 # Take the first free slot of $1 in $2, on descriptor 8, which stays open - and locked - for the rest
@@ -258,7 +258,7 @@ gate_holding() {
 gate_take() {
     _i=0
     while [ "$_i" -lt "$1" ]; do
-        _slot="$2/devkit-gate-slot.$_i"
+        _slot="$2/$DEVKIT_SERVICE-gate-slot.$_i"
         if gate_openable "$_slot"; then
             exec 8>> "$_slot"
             # flock was shown to work (gate_slot_dir): a failure here is a slot somebody holds
@@ -277,7 +277,7 @@ gate_take() {
 # moment the slot is let go. In the background with `wait`, so that a signal ends the wait at once;
 # the lock the child takes is on the descriptor this shell shares with it, and stays when it exits.
 gate_block() {
-    _slot="$2/devkit-gate-slot.0"
+    _slot="$2/$DEVKIT_SERVICE-gate-slot.0"
     gate_openable "$_slot" || { sleep "$1" & wait $! || true; return 1; }
     exec 8>> "$_slot"
     _got=0
@@ -300,7 +300,7 @@ gate_holders() {
         # failing awk would otherwise end the run that is only waiting
         awk -v now="$_at" 'NF == 3 {
             printf "  %s (pid %s), for %dm%02ds\n", $1, $2, (now - $3) / 60, (now - $3) % 60
-        }' "$2/devkit-gate-slot.$_i" 2>/dev/null || true
+        }' "$2/$DEVKIT_SERVICE-gate-slot.$_i" 2>/dev/null || true
         _i=$((_i + 1))
     done
 }
