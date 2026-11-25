@@ -73,6 +73,7 @@ EVERYTHING_WHEN: Final = (
     "assets/yarn.lock",
     "assets/package.json",
     "Makefile",
+    "devkit.mk",
     ".github/workflows/**",
     ".github/actions/**",
 )
