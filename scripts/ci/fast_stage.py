@@ -35,6 +35,11 @@ untested change.
 It never runs the whole suite. A change that reaches every test (`FULL_WHEN`, what tests/conftest.py
 imports), or a selection past `SHARE_LIMIT`, still runs what it selected, up to the limit, and then answers
 `NEEDS_THE_SUITE`, never a pass: the whole suite wants what `make container-test` sizes. Nothing is retried.
+
+`run --gate` is the same selection as the gate's Python tests (`make test-python-selected`): run whole, so
+that every failure in it is reported and not the first; without vitest, which the gate runs as a stage of
+its own; and, where the change needs the whole suite, running nothing and answering `NEEDS_THE_SUITE` at
+once, for the make target to run the whole suite instead. CI runs the whole suite on every push either way.
 """
 
 from __future__ import annotations
@@ -94,6 +99,7 @@ NOT_THE_GATE: Final = (
     "This was the fast stage, not the gate: run `make container-verify` before you push. "
     "CI runs the whole suite on every push."
 )
+THE_GATE_SAYS: Final = "The gate ran this change's selection; CI runs the whole suite on every push."
 NEEDS_THE_SUITE_SAYS: Final = (
     "Run the whole suite with `make container-test` (`make test` in the container); when it passes on a"
     " clean tree it records a new base, and the next fast run is narrow again. Until then"
@@ -379,18 +385,31 @@ def describe(base: Base, committed: set[str], uncommitted: set[str], plan: Plan)
     return "\n".join(lines)
 
 
-def _verdict(status: int, plan: Plan) -> tuple[int, str]:
+def _verdict(status: int, plan: Plan, *, gate: bool = False) -> tuple[int, str]:
+    stage = "The selection" if gate else "Fast stage"
     if status != 0:
-        return status, "Fast stage FAILED."
+        return status, f"{stage} FAILED."
     if plan.reasons:
         return (
             NEEDS_THE_SUITE,
             f"Fast stage ran its selection; this change needs the whole suite. {NEEDS_THE_SUITE_SAYS}",
         )
-    return 0, "Fast stage passed."
+    return 0, f"{stage} passed."
 
 
-def run(root: pathlib.Path, given_base: str | None, pytest_arguments: list[str]) -> int:
+def _gate_cannot_select(plan: Plan) -> int | None:
+    """What the gate answers without running pytest: the whole suite where the change needs it, and a pass
+    where it selects nothing. None where it has a selection to run."""
+    if plan.reasons:
+        print("\nThis change needs the whole suite, which the gate runs in place of a selection.", flush=True)
+        return NEEDS_THE_SUITE
+    if not plan.rules:
+        print(f"\nThe selection holds no test file, so there is nothing for the gate to run. {THE_GATE_SAYS}")
+        return 0
+    return None
+
+
+def run(root: pathlib.Path, given_base: str | None, pytest_arguments: list[str], *, gate: bool = False) -> int:
     try:
         fast_stage_rules.load_rules(root, FULL_WHEN)
     except fast_stage_rules.LocalError as error:
@@ -401,20 +420,24 @@ def run(root: pathlib.Path, given_base: str | None, pytest_arguments: list[str])
     known = read_json(root / DURATIONS)
     plan = make_plan(root, changed, known if isinstance(known, dict) else {}, failed_before(root))
     print(describe(base, committed, uncommitted, plan), flush=True)
+    if gate and (answer := _gate_cannot_select(plan)) is not None:
+        return answer
     if not plan.rules:
         status = NEEDS_THE_SUITE if plan.reasons else NOTHING_SELECTED
         print(f"\nThe fast stage selected no test file, and runs none. {NEEDS_THE_SUITE_SAYS} {NOT_THE_GATE}")
         return status
     junit = root / STATE / "junit-fast.xml"
-    pytest = [str(pathlib.Path(sys.executable).with_name("pytest")), "--failed-first", "--maxfail=1"]
+    pytest = [str(pathlib.Path(sys.executable).with_name("pytest")), "--failed-first"]
+    if not gate:
+        pytest.append("--maxfail=1")
     status = subprocess.run([*pytest, f"--junitxml={junit}", *pytest_arguments, *plan.rules], cwd=root).returncode
     record(root, junit, status, full=False)
-    vitest = vitest_command(root, changed)
+    vitest = None if gate else vitest_command(root, changed)
     if status == 0 and vitest:
         print(f"$ {' '.join(vitest)}", flush=True)
         status = subprocess.run(vitest, cwd=root / "assets").returncode
-    status, said = _verdict(status, plan)
-    print(f"\n{said} {NOT_THE_GATE}")
+    status, said = _verdict(status, plan, gate=gate)
+    print(f"\n{said} {THE_GATE_SAYS if gate else NOT_THE_GATE}")
     return status
 
 
@@ -423,6 +446,7 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     stage = commands.add_parser("run", help="the fast stage; arguments after -- go to pytest")
     stage.add_argument("--base", help="measure the change from where this commit and HEAD meet instead")
+    stage.add_argument("--gate", action="store_true", help="the gate's selection: every failure, no vitest")
     stage.add_argument("pytest_arguments", nargs="*")
     commands.add_parser("begin", help="note HEAD and the tree before a full run of a half").add_argument("half")
     done = commands.add_parser("record", help="keep what a full run's junit report says")
@@ -431,7 +455,7 @@ def main() -> int:
     commands.add_parser("passed", help="a half passed; both on one clean commit make it green").add_argument("half")
     arguments = parser.parse_args()
     if arguments.command == "run":
-        return run(ROOT, arguments.base, arguments.pytest_arguments)
+        return run(ROOT, arguments.base, arguments.pytest_arguments, gate=arguments.gate)
     if arguments.command == "record":
         record(ROOT, arguments.junit, arguments.status, full=True)
     else:
