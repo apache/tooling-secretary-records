@@ -35,7 +35,7 @@ variables the scripts read all start with `DEVKIT_`.
   | `make container-check` | the pre-commit hooks, over what changed since `origin/main` |
   | `make container-check-all` | every hook over every file, as `verify` and CI run them |
   | `make container-test` | pytest + vitest |
-  | `make container-pytest ARGS='...'` | one question: `ARGS='tests/api/test_x.py -k rename -q'`, serial |
+  | `make container-pytest ARGS='...'` | one question: `ARGS='tests/api/test_x.py -k rename -q'`, serial; with more than two workers (`-n 4`) it waits for a gate slot, as the suite does |
   | `make container-test-fast` | while iterating: what this change most likely breaks, first failure stops it; exits 10 when the change needs `container-test` (CONTRIBUTING.md). Not the gate - `container-verify` is |
   | `make container-test-coverage` | pytest with coverage instrumentation (slower, python only) |
   | `make container-test-py314` | the tests in a venv of their own on 3.14 (`DEVKIT_PYTHON`); 3.14 is the default too |
@@ -65,10 +65,10 @@ variables the scripts read all start with `DEVKIT_`.
   than run as something else: `DEVKIT_PYTHON` (so `make container-test-py314`),
   `DEVKIT_DETACH` and `DEVKIT_PORT` (so `make container-keep`); run `scripts/run-dev.sh`
   for the app. What exists only to bound a container does nothing there, and says
-  nothing: the memory cap, `DEVKIT_MEMORY`, the sizing and its gate slots
-  (`DEVKIT_SIZE_WORKERS`), `DEVKIT_CONTAINER_NAME`, `DEVKIT_KEEP`,
+  nothing: the memory cap, `DEVKIT_CONTAINER_NAME`, `DEVKIT_KEEP`,
   `DEVKIT_E2E_WORKERS`, and `make container-stop`, which has nothing to stop. The
-  deadline, `DEVKIT_TIMEOUT`, does apply. The box needs the packages of
+  deadline, `DEVKIT_TIMEOUT`, does apply, and so do the sizing and the gate slots
+  below: sessions share a box as they share a host. The box needs the packages of
   [CONTRIBUTING.md](CONTRIBUTING.md) Option C, `make init` for yarn, and what
   `make e2e-test-host` needs (node, subversion, and the system libraries Chromium
   runs on) for the e2e suite.
@@ -87,7 +87,9 @@ variables the scripts read all start with `DEVKIT_`.
   every worktree of the repository shares, one on a 15 GiB machine. A run that finds every slot
   held waits and says who holds them, rather than starting beside them and being OOM-killed, so
   there is no need to gate one at a time. `PYTEST_WORKERS` or `DEVKIT_MEMORY` given outright
-  replaces the size, not the wait; CI keeps its pinned settings. What the slots do not cover - a
+  replaces the size, not the wait; CI keeps its pinned settings. Inside one gate, a stage that
+  `scripts/local/verify.toml` marks `heavy` - one that runs the suite, or as much - waits for the
+  heavy stage before it, so that the gate runs no two suites at once. What the slots do not cover - a
   narrow pytest, the fast stage, an e2e server, a clone kept elsewhere - is in
   [docs/troubleshooting.md](docs/troubleshooting.md#a-gate-waits-for-a-slot).
 
@@ -95,6 +97,13 @@ variables the scripts read all start with `DEVKIT_`.
   push. The narrow one is serial where `container-test` is not: each xdist worker builds
   an svn repository of its own first, so for a handful of tests that setup costs more
   than the parallelism saves, and interleaved output is not worth reading anyway.
+
+  A service may have its gate run the selection of the fast stage instead of the whole
+  suite: its `scripts/local/verify.toml` names the stage `test-python-selected` in place of
+  `test-python`. The gate then runs every test the change most likely reaches, reports
+  every failure among them, and runs the whole suite where the change needs it. CI runs
+  the whole suite on every push, and is what catches what the selection does not hold. The
+  selection audit says how often that happens.
 
   `make e2e-test` reaches the app by container ip over plain http, which is
   deliberately not a secure context - browser APIs gated on one are absent

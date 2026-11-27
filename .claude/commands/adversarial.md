@@ -59,7 +59,9 @@ edits are part of what it was asked about.
 >    a check that says "nothing found" when it failed to look is the worst of the three.
 >
 > Verify a suspicion before reporting it. Run things in the dev container - never `uv`,
-> `pytest`, `yarn` or `node` on the host - and never pipe a container wrapper into
+> `pytest`, `yarn` or `node` on the host. Run the tests that show a finding, serially or
+> with at most `-n 2`, and never the whole suite: the gate has run it on this commit, and
+> other sessions share the machine. Never pipe a container wrapper into
 > `head`/`tail`, which a guard refuses; redirect to a file and read the file. You may
 > write throwaway scripts inside the worktree and delete them; `git status` must be clean
 > when you finish, and say so if it was not clean when you started.

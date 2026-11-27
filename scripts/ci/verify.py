@@ -21,7 +21,10 @@
 `make verify` runs each stage as the make target of the same name, all of them at the same time:
 pytest keeps up to six workers busy, and the rest - the hooks, the linters, vitest, the behaviour record and
 the quality ratchet - fit beside it on the cores it leaves, so the gate takes about as long as its
-longest stage rather than the sum of them. Each stage writes its own log under state/verify/, and
+longest stage rather than the sum of them. A stage that runs the service's test suite, or as much,
+says it is `heavy`, and no two heavy stages run at once: two suites side by side double the peak of
+the gate, and with several sessions on one machine that peak is what they all feel. The `longest`
+stage is started first. Each stage writes its own log under state/verify/, and
 what is printed is one line per stage, and the end of the log of one that failed.
 
 A stage that passed is not run again until something it reads changes. What it reads is its key: the
@@ -59,6 +62,7 @@ What a repository's stages are is `scripts/local/verify.toml`, which it owns:
     extras = ["quality-base"]
     reads_makefile = false
     longest = true                      # the stage the gate waits for
+    heavy = true                        # runs the suite, or as much: one heavy stage at a time
 
 The file is data, read with tomllib: nothing of the repository is imported to run the gate.
 """
@@ -100,6 +104,9 @@ class Stage:
     longest: bool = False
     """The stage the gate waits for. The others run niced, so that the cores go to it first and the
     rest fill what it leaves."""
+    heavy: bool = False
+    """Whether the stage runs the service's test suite, or as much: it starts once the heavy stage
+    before it has ended (`_after`)."""
 
 
 _BUILTIN_ENVIRONMENT = ("DEVKIT_PYTHON", "PYTEST_ADDOPTS")
@@ -134,7 +141,7 @@ CONFIG = pathlib.Path("scripts/local/verify.toml")
 """Where a repository states its stages, from the root of the repository."""
 
 _EXTRA_KEYS = {"file": {"path", "env"}, "trailers": set(), "command": {"run"}}
-_STAGE_KEYS = {"name", "paths", "extras", "reads_makefile", "longest"}
+_STAGE_KEYS = {"name", "paths", "extras", "reads_makefile", "longest", "heavy"}
 _NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 _VARIABLE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
@@ -184,7 +191,7 @@ def _stages(entries: object, extras: dict[str, Extra], problems: list[str]) -> t
         paths = _strings(entry["paths"], f"{where}: paths", problems) if "paths" in entry else None
         used = _strings(entry.get("extras", []), f"{where}: extras", problems)
         problems += [f"{where}: no extra named {extra}" for extra in used if extra not in extras]
-        flags = {key: entry.get(key, False) for key in ("reads_makefile", "longest")}
+        flags = {key: entry.get(key, False) for key in ("reads_makefile", "longest", "heavy")}
         problems += [f"{where}: {key} is true or false" for key, flag in flags.items() if not isinstance(flag, bool)]
         stages.append(Stage(name, paths=paths, extras=used, **flags))
     return tuple(stages)
@@ -344,6 +351,15 @@ def run(stage: Stage, config: Config, *, fresh: bool) -> Outcome:
     return Outcome(stage, "passed", seconds, log)
 
 
+def _after(
+    previous: concurrent.futures.Future[Outcome] | None, stage: Stage, config: Config, *, fresh: bool
+) -> Outcome:
+    """`run`, once `previous` has ended, however it ended."""
+    if previous is not None:
+        concurrent.futures.wait([previous])
+    return run(stage, config, fresh=fresh)
+
+
 def report(outcome: Outcome) -> str:
     name, log = outcome.stage.name, outcome.log.relative_to(ROOT)
     if outcome.verdict == "unchanged":
@@ -378,7 +394,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"verify: {len(chosen)} stages at once - {', '.join(s.name for s in chosen)}", flush=True)
     outcomes: list[Outcome] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(chosen)) as pool:
-        futures = [pool.submit(run, stage, config, fresh=args.fresh) for stage in chosen]
+        futures = []
+        heavy: concurrent.futures.Future[Outcome] | None = None
+        # the longest first, so that it is the heavy stage that does not wait
+        for stage in sorted(chosen, key=lambda stage: not stage.longest):
+            future = pool.submit(_after, heavy if stage.heavy else None, stage, config, fresh=args.fresh)
+            heavy = future if stage.heavy else heavy
+            futures.append(future)
         for future in concurrent.futures.as_completed(futures):
             outcomes.append(future.result())
             print(report(outcomes[-1]), flush=True)

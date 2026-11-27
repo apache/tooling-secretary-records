@@ -21,8 +21,8 @@
 #   DEVKIT_PYTHON=3.14 scripts/container.sh make test
 #
 # A run of the whole suite - `make test`, `test-python`, `verify`, `verify-fresh` or
-# `test-coverage`, or `uv run scripts/ci/verify.py` - is sized to the machine and takes one of its
-# gate slots, whether it comes through a container-* target or straight here: see
+# `test-coverage`, `uv run scripts/ci/verify.py`, or a `make pytest` asking for more than two xdist
+# workers - is sized to the machine and takes one of its gate slots, whether it comes through a container-* target or straight here: see
 # scripts/container-size.sh. A command wrapped in `sh -c` is not recognised as one.
 #
 # Environment:
@@ -31,8 +31,10 @@
 #                     versions are reproduced locally)
 #   DEVKIT_ISOLATED      set to `1` where the whole environment is disposable (an isx
 #                     box): the command runs in this checkout directly, with no
-#                     container. DEVKIT_TIMEOUT applies; DEVKIT_PYTHON, DEVKIT_DETACH and
-#                     DEVKIT_PORT are refused, since each needs a container of its own
+#                     container. DEVKIT_TIMEOUT applies, and a run of the whole suite is
+#                     sized and takes a gate slot, with no memory cap; DEVKIT_PYTHON,
+#                     DEVKIT_DETACH and DEVKIT_PORT are refused, since each needs a
+#                     container of its own
 #   DEVKIT_RUNTIME       container runtime to use (default: podman, else docker)
 #   DEVKIT_VENV_VOLUME   name the virtualenv volume outright, rather than taking the
 #                     one derived from this checkout
@@ -132,10 +134,31 @@ if [ "$#" -eq 0 ]; then
     exit 2
 fi
 
+# A run of the whole suite is sized to the machine and takes one of its gate slots, on descriptor 8,
+# which whatever runs the command inherits: the slot is held until that ends, and let go by the
+# kernel however it ends. Called last before the run, so that an image build or a volume copy holds
+# no slot.
+#
+# The command itself says whether it is such a run, where no target said so (gate_suite_workers);
+# and a PYTEST_WORKERS on its make line beats the environment's in there, so it is the count here.
+size_this_run() {
+    [ -n "${DEVKIT_SIZE_WORKERS+set}" ] || DEVKIT_SIZE_WORKERS=$(gate_suite_workers "$@")
+    make_workers=$(gate_make_workers "$@")
+    [ -z "$make_workers" ] || PYTEST_WORKERS=$make_workers
+    WORKERS=${PYTEST_WORKERS:-}
+    if [ -z "$DETACH" ] && gate_wanted; then
+        gate_size
+    fi
+}
+
 # Already inside a disposable environment (DEVKIT_ISOLATED=1, see AGENTS.md): there is nothing
 # left to isolate from, and a container in it would only rebuild the image. The command runs
 # where it stands. What is for a container of its own has no meaning here and is refused,
 # where running it as something else would answer a different question.
+#
+# A run of the whole suite still takes a gate slot and is sized: several sessions share one box as
+# they share a host, and without the slot each gate starts beside the others. There is no
+# container to cap, so it has no memory cap (GATE_NO_CONTAINER).
 if [ "${DEVKIT_ISOLATED:-}" = 1 ]; then
     if [ -n "${DEVKIT_PYTHON:-}" ] || [ -n "$DETACH" ] || [ -n "${DEVKIT_PORT:-}" ]; then
         echo "DEVKIT_PYTHON, DEVKIT_DETACH and DEVKIT_PORT need a container of their own: not with DEVKIT_ISOLATED=1" >&2
@@ -145,6 +168,12 @@ if [ "${DEVKIT_ISOLATED:-}" = 1 ]; then
     export PATH
     cd "$repo_root"
     sh "$script_dir/ensure-node-modules.sh" "$repo_root/assets"
+    GATE_NO_CONTAINER=1
+    size_this_run "$@"
+    if [ -n "$WORKERS" ]; then
+        PYTEST_WORKERS=$WORKERS
+        export PYTEST_WORKERS
+    fi
     if [ -z "$TIMEOUT" ]; then
         exec "$@"
     fi
@@ -185,20 +214,9 @@ fi
 seed_volume "$VENV_VOLUME" "$DEVKIT_SERVICE-venv"
 seed_volume "$NODE_VOLUME" "$DEVKIT_SERVICE-node"
 
-# A run of the whole suite is sized to the machine and takes one of its gate slots, on descriptor 8,
-# which the `podman run` below inherits - and, under podman, conmon and the network helper with it:
-# the slot is held until the container ends, and let go by the kernel however it ends. Last before
-# the run, so that an image build or a volume copy holds no slot.
-#
-# The command itself says whether it is such a run, where no target said so (gate_suite_workers);
-# and a PYTEST_WORKERS on its make line beats the environment's in there, so it is the count here.
-[ -n "${DEVKIT_SIZE_WORKERS+set}" ] || DEVKIT_SIZE_WORKERS=$(gate_suite_workers "$@")
-make_workers=$(gate_make_workers "$@")
-[ -z "$make_workers" ] || PYTEST_WORKERS=$make_workers
-WORKERS=${PYTEST_WORKERS:-}
-if [ -z "$DETACH" ] && gate_wanted; then
-    gate_size
-fi
+# The slot is held by `podman run` - and, under podman, by conmon and the network helper with it -
+# so until the container ends.
+size_this_run "$@"
 
 # The inner script runs inside the container, so its variables must reach it
 # unexpanded - the single quotes around it are deliberate.

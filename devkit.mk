@@ -23,7 +23,7 @@
 
 devkit_mk_goal := $(.DEFAULT_GOAL)
 
-.PHONY: check check-all lint test test-python test-frontend test-fast test-coverage pytest verify verify-fresh \
+.PHONY: check check-all lint test test-python test-python-selected test-frontend test-fast test-coverage pytest verify verify-fresh \
 	quality quality-show quality-base snapshot snapshot-base snapshot-full \
 	e2e-test e2e-test-host e2e-quick e2e-typecheck \
 	container-check container-check-all container-test container-test-fast container-test-coverage container-test-py314 \
@@ -112,6 +112,18 @@ FAST_STAGE_RUN = $(FAST_STAGE) run $(if $(FAST_BASE),--base $(FAST_BASE)) -- $(P
 
 test-fast:
 	$(FAST_STAGE_RUN)
+
+# The gate's Python tests, for a service whose verify.toml names this stage in place of `test-python`: the
+# fast stage's selection, run whole so that every failure in it is reported, and the whole suite where the
+# change needs it - `--gate` exits 10 for that without running the selection. CI runs the whole suite on
+# every push, and is what catches what the selection does not hold.
+#
+# Make runs a recipe line that names $(MAKE) itself even under `make -n`, and verify.py reads a stage's
+# recipe with `make -n`: through a variable of its own, the line is only printed.
+THE_SUITE = $(MAKE) --no-print-directory test-python
+test-python-selected:
+	$(FAST_STAGE) run --gate $(if $(FAST_BASE),--base $(FAST_BASE)) -- $(PYTEST_PARALLEL); status=$$?; \
+		if [ $$status -eq 10 ]; then $(THE_SUITE); else exit $$status; fi
 
 # One question, asked as narrowly as you can ask it:
 #

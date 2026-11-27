@@ -4,8 +4,9 @@
 # the slots that keep the runs of several sessions from asking for more memory than the machine has.
 #
 # Sourced by container.sh, like checkout-id.sh. A run of the whole suite is sized: one whose command
-# is `make test`, `test-python`, `verify`, `verify-fresh` or `test-coverage`, or `uv run
-# scripts/ci/verify.py` (gate_suite_workers), or one given DEVKIT_SIZE_WORKERS, the most workers its
+# is `make test`, `test-python`, `verify`, `verify-fresh` or `test-coverage`, `uv run
+# scripts/ci/verify.py`, or a `make pytest` whose ARGS or make line ask for more than two xdist workers
+# (gate_suite_workers), or one given DEVKIT_SIZE_WORKERS, the most workers its
 # command can use - which the Makefile's container-* targets set. Everything here runs on the host,
 # before the container starts, because the memory cap is fixed when it does.
 #
@@ -70,6 +71,10 @@
 # MemAvailable down to 0.50 and 0.35 GiB, and were stopped.
 GATE_WORKER_MIB=512
 GATE_BASE_MIB=6912
+
+# The most workers a narrow `make pytest` may ask for and stay outside the slots: past it, it is sized and waits
+# for a slot as a run of the suite does.
+GATE_NARROW_WORKERS=2
 
 # What is left to everything else, and the run a slot is sized for: the six workers of a gate.
 GATE_SPARE_MIB=1024
@@ -167,6 +172,16 @@ gate_suite_workers() {
                         echo "$GATE_SLOT_WORKERS"
                         return
                         ;;
+                    # one question, serial, unless it asks for more workers than a narrow run wants: then it
+                    # loads the machine as the suite does, and waits for a slot as the suite does
+                    pytest)
+                        _asked=$(gate_make_workers make "$@")
+                        case $_asked in
+                            '' | *[!0-9]*) ;;
+                            *) [ "$_asked" -le "$GATE_NARROW_WORKERS" ] || echo "$_asked" ;;
+                        esac
+                        return
+                        ;;
                     # serial
                     test-coverage)
                         echo 1
@@ -186,17 +201,49 @@ gate_suite_workers() {
     esac
 }
 
-# The PYTEST_WORKERS given on a make command line among $@, which beats the environment's there.
+# The PYTEST_WORKERS given on a make command line among $@, which beats the environment's there - or the
+# xdist count in its ARGS, which comes after it on pytest's command line and so beats that too. `auto` and
+# `logical` are a slot's worth.
 gate_make_workers() {
     [ "${1:-}" = make ] || return 0
     _found=''
+    _xdist=''
     for _arg in "$@"; do
         case $_arg in
             PYTEST_WORKERS=*) _found=${_arg#*=} ;;
+            ARGS=*)
+                # split into words, and not globbed: ARGS names paths
+                # shellcheck disable=SC2086  # the split is the point; set -f keeps a path in it from globbing
+                _xdist=$(set -f && gate_xdist_workers ${_arg#ARGS=})
+                ;;
             *) ;;
         esac
     done
+    case $_xdist in
+        auto | logical) _found=$GATE_SLOT_WORKERS ;;
+        '') ;;
+        *) _found=$_xdist ;;
+    esac
     [ -z "${_found:-}" ] || echo "$_found"
+}
+
+# The count pytest-xdist is given among the words $@: `-n N`, `-nN`, `--numprocesses N` or
+# `--numprocesses=N`, the last of them; nothing where there is none.
+gate_xdist_workers() {
+    _n=''
+    while [ "$#" -gt 0 ]; do
+        case $1 in
+            -n | --numprocesses)
+                _n=${2:-}
+                [ "$#" -lt 2 ] || shift
+                ;;
+            --numprocesses=*) _n=${1#*=} ;;
+            -n*) _n=${1#-n} ;;
+            *) ;;
+        esac
+        shift
+    done
+    echo "$_n"
 }
 
 # Whether this run is one to size: a command that asked for it, outside CI, on a machine whose memory
@@ -306,7 +353,8 @@ gate_holders() {
 }
 
 # Size this run, and take a slot, waiting for one where all are held. Sets WORKERS, MEMORY and
-# TIMEOUT for container.sh; MEMORY is left as it was where DEVKIT_MEMORY was given.
+# TIMEOUT for container.sh; MEMORY is left as it was where DEVKIT_MEMORY was given, and is empty where
+# the run has no container to cap (GATE_NO_CONTAINER).
 gate_size() {
     _max=$(gate_number DEVKIT_SIZE_WORKERS "$DEVKIT_SIZE_WORKERS")
     _given_workers=''
@@ -373,5 +421,6 @@ gate_size() {
         _where='no slot: no git directory to share them in, or no flock that works'
         echo "container.sh: $_where - sized, but not kept from other runs" >&2
     fi
+    [ -z "${GATE_NO_CONTAINER:-}" ] || MEMORY=''
     echo "container.sh: $WORKERS pytest workers in ${MEMORY:-no cap}, deadline ${TIMEOUT:-none}s ($_where)" >&2
 }
